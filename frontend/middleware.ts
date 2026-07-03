@@ -40,7 +40,7 @@ function isProtectedPath(pathname: string): boolean {
 }
 
 function isAuthEntryPath(pathname: string): boolean {
-  return pathname.startsWith("/auth")
+  return pathname.startsWith("/auth") || pathname === "/login"
 }
 
 export function middleware(request: NextRequest) {
@@ -53,7 +53,7 @@ export function middleware(request: NextRequest) {
     !authenticated
   ) {
     const loginUrl = request.nextUrl.clone()
-    loginUrl.pathname = "/auth/login"
+    loginUrl.pathname = "/login"
     loginUrl.search = ""
     return NextResponse.redirect(loginUrl)
   }
@@ -81,5 +81,6 @@ export const config = {
     "/auth/register",
     "/auth/:path*",
     "/onboarding",
+    "/login",
   ],
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { getToken, getUser, saveSession, type PrepMeUser } from "@/lib/auth.ts"
+import { clearAuthSessionKeepProfile, type PrepMeUser } from "@/lib/auth.ts"
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -120,16 +120,26 @@ export default function OnboardingPage() {
   const [dailyHours, setDailyHours] = useState(2.5)
 
   useEffect(() => {
-    const token = getToken()
-    const user = getUser()
+    const token = typeof window !== "undefined" ? localStorage.getItem("prepme_token") || localStorage.getItem("token") : null
+    const userStr = typeof window !== "undefined" ? localStorage.getItem("prepme_user") : null
+    
     if (!token) {
-      router.replace("/auth/login")
+      router.replace("/login")
       return
     }
-    if (user?.onboarding_complete === true) {
-      router.replace("/home")
-      return
+    
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr)
+        if (user.onboarding_complete === true) {
+          router.replace("/home")
+          return
+        }
+      } catch {
+        // Continue with onboarding if parse fails
+      }
     }
+    
     setReady(true)
   }, [router])
 
@@ -162,8 +172,9 @@ export default function OnboardingPage() {
   const finish = async () => {
     setSubmitting(true)
     try {
-      const token = getToken()
-      const existing = getUser()
+      const token = typeof window !== "undefined" ? localStorage.getItem("prepme_token") || localStorage.getItem("token") : null
+      const existingStr = typeof window !== "undefined" ? localStorage.getItem("prepme_user") : null
+      const existing = existingStr ? JSON.parse(existingStr) : {}
 
       const profile: PrepMeUser = {
         id: existing?.id,
@@ -184,8 +195,6 @@ export default function OnboardingPage() {
       localStorage.setItem("prepme_user", JSON.stringify(profile))
 
       if (token) {
-        saveSession(token, profile)
-
         const patchBody: Record<string, unknown> = {
           daily_hours: dailyHours,
         }
@@ -212,8 +221,9 @@ export default function OnboardingPage() {
         }
       }
 
-      // Full navigation so middleware sees auth cookies and AuthProvider reloads
-      window.location.href = "/home"
+      // Sign out so user must sign in again with new account
+      clearAuthSessionKeepProfile()
+      window.location.href = "/login?registered=1"
     } catch {
       setSubmitting(false)
     }

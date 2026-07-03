@@ -218,7 +218,7 @@ export function TopNav() {
     router.prefetch("/profile")
   }, [router])
 
-  const handleLogout = () => { logout(); router.push("/login") }
+  const handleLogout = () => { logout(); router.push("/") }
 
   const daysLeft = profile?.days_to_exam ?? 30
 

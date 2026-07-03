@@ -34,7 +34,7 @@ export function Sidebar() {
     router.prefetch("/profile")
   }, [router])
 
-  const handleLogout = () => { logout(); router.push("/login") }
+  const handleLogout = () => { logout(); router.push("/") }
 
   const switchSubject = async (subject: "science" | "maths") => {
     if (profile?.subject === subject) return

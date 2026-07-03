@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
 import type { AppSubject } from "@/lib/subjects"
 import { isApiSubject, normalizeSubject, toApiSubject } from "@/lib/subjects"
-import { buildPlaceholderProfile } from "@/lib/subject-mocks"
+import { buildPlaceholderProfile, getMockResponse } from "@/lib/subject-mocks"
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -46,15 +46,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (typeof window !== "undefined"
         ? localStorage.getItem("prepme_token") || localStorage.getItem("token")
         : null)
-    const sub = profile?.subject ?? "science"
-    return fetch(`${API}${path}`, {
+    const requestInit: RequestInit = {
       ...init,
       headers: {
         "Content-Type": "application/json",
         ...(t ? { Authorization: `Bearer ${t}` } : {}),
         ...(init.headers || {}),
       },
-    })
+    }
+
+    try {
+      return await fetch(`${API}${path}`, requestInit)
+    } catch {
+      const fallback = getMockResponse(path, requestInit, profile?.subject ?? "science")
+      if (fallback) return fallback
+      throw new Error("Backend unavailable")
+    }
   }, [token, profile?.subject])
 
   const fetchProfile = useCallback(async (t: string) => {
@@ -133,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("prepme_token")
     localStorage.removeItem("prepme_user")
     document.cookie = "prepme_token=; path=/; max-age=0"
+    document.cookie = "token=; path=/; max-age=0"
     setToken(null)
     setProfile(null)
     setSubjectVersion(0)

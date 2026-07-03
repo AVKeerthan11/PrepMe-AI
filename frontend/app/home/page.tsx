@@ -159,7 +159,7 @@ export default function Dashboard() {
     const token =
       localStorage.getItem("prepme_token") || localStorage.getItem("token")
     if (!token) {
-      router.replace("/auth/login")
+      router.replace("/login")
       return
     }
     try {

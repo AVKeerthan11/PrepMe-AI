@@ -68,11 +68,23 @@ export function saveSession(token: string, user: PrepMeUser): void {
   }
 }
 
+export function clearAuthSessionKeepProfile(): void {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(LEGACY_TOKEN_KEY)
+  clearAuthCookie()
+  if (typeof document !== "undefined") {
+    document.cookie = "token=; path=/; max-age=0"
+  }
+}
+
 export function logout(): void {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
   localStorage.removeItem(LEGACY_TOKEN_KEY)
   clearAuthCookie()
+  if (typeof document !== "undefined") {
+    document.cookie = "token=; path=/; max-age=0"
+  }
   window.location.href = "/"
 }
 

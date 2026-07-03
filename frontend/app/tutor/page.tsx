@@ -268,7 +268,9 @@ interface Msg {
   suggested_questions?: string[]
 }
 interface Prerequisites {
-  mastery_gap: string[]
+  mastery_gap?: string[]
+  prerequisites?: string[]
+  ready?: boolean
 }
 
 // ── Render **bold** terms as yellow highlight chips ────────────────────────────
@@ -368,6 +370,9 @@ export default function TutorPage() {
     : normalizedSubject === "english" ? ENGLISH_PREBUILT
     : SCIENCE_PREBUILT
   const prebuiltQuestions = topic !== "— General —" ? (prebuiltMap[topic] ?? []) : []
+  const prerequisiteGaps = prerequisites === null
+    ? null
+    : prerequisites.mastery_gap ?? prerequisites.prerequisites ?? []
 
   // Reset on topic/subject change
   useEffect(() => {
@@ -541,13 +546,13 @@ export default function TutorPage() {
               {/* Prerequisites */}
               <div>
                 <p className="text-[9px] font-mono text-[#999] uppercase tracking-wider mb-1.5">Prerequisites</p>
-                {prerequisites === null ? (
+                {prerequisiteGaps === null ? (
                   <p className="text-[10px] font-mono text-[#C0BAB0]">Loading…</p>
-                ) : prerequisites.mastery_gap.length === 0 ? (
+                ) : prerequisiteGaps.length === 0 ? (
                   <p className="text-[10px] font-mono font-bold" style={{ color: "#2a7d4f" }}>✓ Prerequisites clear</p>
                 ) : (
                   <div className="flex flex-wrap gap-1">
-                    {prerequisites.mastery_gap.map((gap, i) => (
+                    {prerequisiteGaps.map((gap, i) => (
                       <span key={i}
                         className="inline-block px-1.5 py-0.5 text-[9px] font-mono font-bold border border-[#c47c2b] text-[#c47c2b] bg-white"
                         style={{ boxShadow: "1px 1px 0 #c47c2b" }}>

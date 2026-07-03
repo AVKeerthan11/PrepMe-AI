@@ -207,10 +207,10 @@ export default function LandingPage() {
           </nav>
 
           <div className="landing-header-actions">
-            <Link href="/auth/login" className="landing-btn landing-btn-outline">
+            <Link href="/login" className="landing-btn landing-btn-outline">
               Login
             </Link>
-            <Link href="/auth/register" className="landing-btn landing-btn-gold">
+            <Link href="/login" className="landing-btn landing-btn-gold">
               Get Started Free
             </Link>
           </div>
@@ -229,7 +229,7 @@ export default function LandingPage() {
                 grounded in your actual NCERT textbook.
               </p>
               <div className="landing-hero-actions">
-                <Link href="/auth/register" className="landing-btn landing-btn-gold landing-btn-lg">
+                <Link href="/login" className="landing-btn landing-btn-gold landing-btn-lg">
                   Start Learning Free
                 </Link>
                 <a href="#how-it-works" className="landing-btn landing-btn-outline landing-btn-lg">
@@ -306,7 +306,7 @@ export default function LandingPage() {
                       <li key={ch}>{ch}</li>
                     ))}
                   </ul>
-                  <Link href="/auth/login" className="landing-course-link">
+                  <Link href="/login" className="landing-course-link">
                     Explore →
                   </Link>
                 </article>
@@ -365,7 +365,7 @@ export default function LandingPage() {
           <div className="landing-container landing-cta-inner">
             <h2>Ready to Start Preparing Smarter?</h2>
             <p>Join thousands of students acing their exams with AI.</p>
-            <Link href="/auth/register" className="landing-btn landing-btn-navy landing-btn-lg">
+            <Link href="/login" className="landing-btn landing-btn-navy landing-btn-lg">
               Get Started Free →
             </Link>
           </div>
