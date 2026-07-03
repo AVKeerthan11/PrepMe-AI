@@ -30,22 +30,6 @@ from sqlalchemy import text
 async def lifespan(app: FastAPI):
     print("🚀 Starting PrepMeAI API...")
     await init_db()
-    
-    # Feature 1: Time-Per-Question Tracking
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text("ALTER TABLE quiz_attempts ADD COLUMN time_taken_seconds INTEGER"))
-            print("✅ Added time_taken_seconds column to quiz_attempts")
-    except Exception as e:
-        print(f"ℹ️ time_taken_seconds column check/addition failed: {e}")
-
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text("ALTER TABLE quiz_attempts ADD COLUMN score FLOAT"))
-            print("✅ Added score column to quiz_attempts")
-    except Exception as e:
-        print(f"ℹ️ score column check/addition failed: {e}")
-
     print("✅ Database initialized")
 
     # Pre-build RAG index for science PDF so first user request is fast
