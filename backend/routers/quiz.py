@@ -531,8 +531,8 @@ async def assess_student_answer(
             "is_correct": 1 if is_correct else 0,
             "bloom_level": req.question_type,
             "attempted_at": dt.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-            "time_taken_seconds": req.time_taken_seconds,
-            "score": score_val
+            "time_taken_seconds": req.time_taken_seconds or 0,
+            "score": score_val or 0.0
         })
         await db.commit()
     except Exception as e:
@@ -737,11 +737,11 @@ async def assess_teachback(
         INSERT INTO quiz_attempts (
             id, user_id, topic, question_text, student_answer, 
             reference_answer, is_correct, bloom_level, attempted_at, 
-            score
+            time_taken_seconds, score
         ) VALUES (
             :id, :user_id, :topic, :question_text, :student_answer, 
             :reference_answer, :is_correct, :bloom_level, :attempted_at, 
-            :score
+            :time_taken_seconds, :score
         )
     """)
     try:
@@ -755,6 +755,7 @@ async def assess_teachback(
             "is_correct": 1 if score_val >= 50 else 0,
             "bloom_level": "teach_back",
             "attempted_at": dt.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            "time_taken_seconds": 0,
             "score": score_val / 100.0
         })
         await db.commit()

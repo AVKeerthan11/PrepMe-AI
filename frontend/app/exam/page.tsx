@@ -656,13 +656,14 @@ export default function ExamPage() {
   if (phase === "setup") {
     const pattern = CBSE_PATTERNS[subject] || []
     const totalQ = pattern.reduce((sum, s) => sum + s.questions, 0)
+    const totalMarks = pattern.reduce((sum, s) => sum + s.marks, 0)
 
     return (
       <AppShell>
         <div className="min-h-screen p-8">
           <div className="max-w-4xl mx-auto">
             <div className="neo-card p-8 mb-6">
-              <h1 className="text-3xl font-bold mb-2 text-center">CBSE Board Exam Simulation</h1>
+              <h1 className="text-3xl font-bold mb-2 text-center text-gray-900">CBSE Board Exam Simulation</h1>
               <p className="text-center text-sm mb-6 text-amber-700 font-semibold">
                 ⚠️ This simulates a real CBSE exam paper. Once started, a 3-hour timer begins.
               </p>
@@ -775,7 +776,7 @@ export default function ExamPage() {
                     <td className="p-2">Total</td>
                     <td className="p-2">—</td>
                     <td className="p-2 text-center">{totalQ}</td>
-                    <td className="p-2 text-center">80</td>
+                    <td className="p-2 text-center">{totalMarks}</td>
                   </tr>
                 </tbody>
               </table>
@@ -920,6 +921,8 @@ export default function ExamPage() {
 
   // ── PHASE 4: Results ──────────────────────────────────────────────────────
   if (phase === "results" && results) {
+    const paperTotalMarks = paper?.total_marks ?? paper?.sections.reduce((sum, s) => sum + s.section_marks, 0) ?? 80
+
     return (
       <AppShell>
         <div className="min-h-screen p-8 bg-gray-50">
@@ -929,7 +932,7 @@ export default function ExamPage() {
 
               <div className="bg-gradient-to-r from-blue-100 to-green-100 p-8 rounded-lg mb-6 text-center">
                 <div className="text-5xl font-bold mb-2">
-                  {results.score} / {paper?.sections.reduce((sum, s) => sum + s.section_marks, 0) || 80}
+                  {results.score} / {paperTotalMarks}
                 </div>
                 <div className="text-2xl mb-2">
                   {results.percentage}%
@@ -967,7 +970,7 @@ export default function ExamPage() {
                 <button
                   className="brut-btn brut-btn-outline px-6 py-3"
                   onClick={() => {
-                    const text = `CBSE Mock Exam Results\nSubject: ${paper?.subject}\nClass: ${paper?.class_level}\n\nScore: ${results.score}/80\nPercentage: ${results.percentage}%\nGrade: ${results.grade}\n\nSection Breakdown:\n${results.sections
+                    const text = `CBSE Mock Exam Results\nSubject: ${paper?.subject}\nClass: ${paper?.class_level}\n\nScore: ${results.score}/${paperTotalMarks}\nPercentage: ${results.percentage}%\nGrade: ${results.grade}\n\nSection Breakdown:\n${results.sections
                       .map((s: any) => `${s.name}: ${s.marksObtained}/${s.maxMarks}`)
                       .join("\n")}`
                     const blob = new Blob([text], { type: "text/plain" })

@@ -268,17 +268,25 @@ def _validate_english_item(item: dict, section_name: str, stage: str, index: int
     return True
 
 
-def _groq_generate_json(prompt: str, section_name: str, stage: str, expected_count: int, temperature: float, item_validator=None):
+def _groq_generate_json(
+    prompt: str,
+    section_name: str,
+    stage: str,
+    expected_count: int,
+    temperature: float,
+    item_validator=None,
+    max_tokens: int = 2000,
+):
     for attempt in range(2):
         current_temperature = temperature if attempt == 0 else max(0.1, temperature - 0.3)
         attempt_label = f"attempt {attempt + 1}/2"
         print(f"[exam:{section_name}:{stage}] {attempt_label} temperature={current_temperature}")
         try:
             raw = groq_chat(
-    [{"role": "user", "content": prompt}],
-    temperature=current_temperature,
-    max_tokens=6000,
-)
+                [{"role": "user", "content": prompt}],
+                temperature=current_temperature,
+                max_tokens=max_tokens,
+            )
             _log_raw_response(section_name, stage, raw)
             data = _extract_json(raw, section_name, stage)
             if _validate_generated_list(data, expected_count, section_name, stage, item_validator):
@@ -296,9 +304,9 @@ def _get_context_for_section(
     pdf_path: str,
     section_name: str,
     topic_filter: Optional[str] = None,
-    chunks_per_chapter: int = 2,
-    max_total_chunks: int = 12,
-    context_char_limit: int = 4000,
+    chunks_per_chapter: int = 1,
+    max_total_chunks: int = 6,
+    context_char_limit: int = 2200,
     syllabus_scope: str = "full",          # NEW parameter
 ) -> str:
     """
@@ -620,9 +628,9 @@ async def generate_exam_paper(
                 None,
                 _get_context_for_section,
                 subject, pdf_path, sec["name"], topic_filter,
-                2,               # chunks_per_chapter
-                12,              # max_total_chunks
-                4000,            # context_char_limit
+                1,               # chunks_per_chapter
+                6,               # max_total_chunks
+                2200,            # context_char_limit
                 syllabus_scope,  # NEW: pass scope through
             )
 
@@ -670,7 +678,7 @@ async def generate_exam_paper(
         "class_level":    class_level,
         "topic_filter":   topic_filter,
         "syllabus_scope": syllabus_scope,
-        "total_marks":    80,
+        "total_marks":    total_marks,
         "sections":       sections_out,
     }
     # Add at the end of exam_service.py after the generate_exam_paper function
