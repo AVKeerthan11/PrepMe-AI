@@ -100,17 +100,43 @@ def _weightage_for(user: User) -> dict:
     return SCIENCE_WEIGHTAGE
 
 
-def _subject_topics(user: User) -> Set[str]:
-    return set(_weightage_for(user).keys())
+def _normalize_subject(subject: Optional[str]) -> str:
+    value = (subject or "science").lower()
+    if "math" in value:
+        return "maths"
+    if "social" in value:
+        return "social"
+    if "english" in value:
+        return "english"
+    return "science"
 
 
-def _filter_scores_for_subject(scores: list, user: User) -> list:
-    topics = _subject_topics(user)
+def _weightage_for_subject(subject: Optional[str]) -> dict:
+    normalized = _normalize_subject(subject)
+    if normalized == "science":
+        return SCIENCE_WEIGHTAGE
+    if normalized == "maths":
+        return MATHS_WEIGHTAGE
+    if normalized == "social":
+        return SOCIAL_WEIGHTAGE
+    if normalized == "english":
+        return ENGLISH_WEIGHTAGE
+    return SCIENCE_WEIGHTAGE
+
+
+def _subject_topics(user: User, subject: Optional[str] = None) -> Set[str]:
+    if subject is None:
+        return set(_weightage_for(user).keys())
+    return set(_weightage_for_subject(subject).keys())
+
+
+def _filter_scores_for_subject(scores: list, user: User, subject: Optional[str] = None) -> list:
+    topics = _subject_topics(user, subject)
     return [s for s in scores if s.topic in topics]
 
 
-def _filter_sessions_for_subject(sessions: list, user: User) -> list:
-    topics = _subject_topics(user)
+def _filter_sessions_for_subject(sessions: list, user: User, subject: Optional[str] = None) -> list:
+    topics = _subject_topics(user, subject)
     return [s for s in sessions if s.topic in topics or s.session_type == "break"]
 
 
@@ -238,9 +264,9 @@ async def _session_exists_on_date(
     return result.scalar_one_or_none() is not None
 
 
-async def _ensure_mastery_for_subject(db: AsyncSession, user: User) -> List[MasteryScore]:
+async def _ensure_mastery_for_subject(db: AsyncSession, user: User, subject: Optional[str] = None) -> List[MasteryScore]:
     """Seed missing topic mastery at 0.5 for the active subject, then return subject scores."""
-    weightage = _weightage_for(user)
+    weightage = _weightage_for_subject(subject) if subject is not None else _weightage_for(user)
     scores = await get_mastery_scores_by_user(db, user.id)
     existing_topics = {s.topic for s in scores}
 
@@ -280,20 +306,20 @@ async def _get_quiz_attempt_counts(db: AsyncSession, user_id) -> Dict[str, int]:
 
 
 async def _build_and_save_sessions(
-    db: AsyncSession, user: User, scores: list
+    db: AsyncSession, user: User, scores: list, subject: Optional[str] = None
 ) -> List[StudySession]:
     """Distribute sessions across all 7 days starting from today, never skip a day."""
     today = datetime.date.today()
     exam_date = _exam_date(user)
     days = _days_left(user)
     exam_countdown = days <= 7
-    weightage = _weightage_for(user)
+    weightage = _weightage_for_subject(subject) if subject is not None else _weightage_for(user)
     max_per_day = _max_sessions_per_day(user)
     max_minutes = _max_minutes_per_day(user)
 
-    scores = _filter_scores_for_subject(scores, user)
+    scores = _filter_scores_for_subject(scores, user, subject)
     if not scores:
-        scores = await _ensure_mastery_for_subject(db, user)
+        scores = await _ensure_mastery_for_subject(db, user, subject)
 
     attempt_counts = await _get_quiz_attempt_counts(db, user.id)
 
@@ -369,12 +395,14 @@ async def _build_and_save_sessions(
 
 @router.get("/")
 async def get_plan(
+    subject: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     today = datetime.date.today()
     days = _days_left(user)
     exam_countdown = days <= 7
+    active_subject = _normalize_subject(subject or user.subject)
 
     result = await db.execute(
         select(StudySession)
@@ -384,12 +412,12 @@ async def get_plan(
         )
         .order_by(StudySession.date, StudySession.priority_score.desc())
     )
-    sessions = _filter_sessions_for_subject(list(result.scalars().all()), user)
+    sessions = _filter_sessions_for_subject(list(result.scalars().all()), user, active_subject)
 
     if not sessions:
-        scores = await _ensure_mastery_for_subject(db, user)
+        scores = await _ensure_mastery_for_subject(db, user, active_subject)
         if scores:
-            sessions = await _build_and_save_sessions(db, user, scores)
+            sessions = await _build_and_save_sessions(db, user, scores, active_subject)
 
     # Always recompute session_type from current mastery + attempt counts
     if sessions:
@@ -409,7 +437,7 @@ async def get_plan(
         "sessions": [_serialize_session(s) for s in sessions],
         "exam_countdown": exam_countdown,
         "days_remaining": days,
-        "subject": user.subject,
+        "subject": active_subject,
     }
 
 

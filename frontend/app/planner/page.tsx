@@ -239,7 +239,7 @@ function StudyNowModal({ data, onClose }: { data: StudyNow; onClose: () => void 
 // ── Main Planner Page ──────────────────────────────────────────────────────────
 export default function PlannerPage() {
   const { profile, authFetch, refreshProfile, subjectVersion } = useAuth()
-  const subject = profile?.subject ?? "science"
+  const [selectedSubject, setSelectedSubject] = useState(profile?.subject ?? "science")
   const [plan, setPlan]           = useState<PlanResponse | null>(null)
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState("")
@@ -251,11 +251,24 @@ export default function PlannerPage() {
   const [burnoutWarnings, setBurnoutWarnings] = useState<any[]>([])
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
 
+  const toApiSubject = (s: string) => {
+    if (s === "Social Studies" || s === "social") return "social"
+    if (s === "Mathematics" || s === "mathematics" || s === "maths") return "mathematics"
+    if (s === "English" || s === "english") return "english"
+    return "science"
+  }
+
+  useEffect(() => {
+    setSelectedSubject(profile?.subject ?? "science")
+  }, [profile?.subject])
+
+  const apiSubject = toApiSubject(selectedSubject)
+
   const fetchPlan = useCallback(async () => {
     setLoading(true); setError("")
     setPlan(null)
     try {
-      const res = await authFetch(`/api/planner/?subject=${subject}`)
+      const res = await authFetch(`/api/planner/?subject=${apiSubject}`)
       if (!res.ok) throw new Error("Failed to load plan")
       setPlan(await res.json())
     } catch {
@@ -263,7 +276,7 @@ export default function PlannerPage() {
     } finally {
       setLoading(false)
     }
-  }, [authFetch, subject])
+  }, [authFetch, apiSubject])
 
   const fetchBurnoutCheck = useCallback(async () => {
     try {
@@ -284,7 +297,7 @@ export default function PlannerPage() {
   useEffect(() => {
     fetchPlan()
     fetchBurnoutCheck()
-  }, [fetchPlan, fetchBurnoutCheck, subject, subjectVersion])
+  }, [fetchPlan, fetchBurnoutCheck, selectedSubject, subjectVersion])
 
   useEffect(() => {
     const handleFocus = () => {
@@ -329,7 +342,7 @@ export default function PlannerPage() {
   const handleComplete = async (id: string, topic: string) => {
     await authFetch("/api/planner/complete-session", {
       method: "POST",
-      body: JSON.stringify({ session_id: id, topic, subject: profile?.subject ?? "science" }),
+      body: JSON.stringify({ session_id: id, topic, subject: apiSubject }),
     })
     // Optimistically mark done, then re-fetch so session_type reflects updated mastery
     setPlan(p => p ? {
@@ -398,6 +411,23 @@ export default function PlannerPage() {
   return (
     <AppShell>
       <div className="space-y-5">
+
+        <div className="flex gap-1.5 flex-wrap">
+          {(["Science", "Mathematics", "Social Studies", "English"] as const).map((label) => (
+            <button
+              key={label}
+              onClick={() => setSelectedSubject(label)}
+              className={cn(
+                "px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider font-mono border transition-colors",
+                toApiSubject(selectedSubject) === toApiSubject(label)
+                  ? "bg-[#4A6FA5] text-white border-[#4A6FA5]"
+                  : "border-[rgba(28,31,58,0.10)] text-[rgba(28,31,58,0.40)] hover:border-[rgba(28,31,58,0.30)] hover:text-[#1c1f3a]"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
         {/* Exam countdown banner */}
         {plan?.exam_countdown && (
