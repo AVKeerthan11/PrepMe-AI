@@ -117,26 +117,22 @@ const BriefcaseNavItem = ({
           transition={{ type: "spring", stiffness: 260, damping: 24 }}
           style={{
             height: "28px",
-            background: active ? accentColor : "#fdfcf9",
+            background: active ? accentColor : "#fcfaf8",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             gap: "5px",
-            borderBottom: `2px dashed ${active ? "rgba(255,255,255,0.4)" : "rgba(28,31,58,0.2)"}`,
+            borderBottom: `2px dashed ${active ? "rgba(255,255,255,0.4)" : "rgba(28,31,58,0.15)"}`,
             position: "relative",
             zIndex: 2,
           }}
         >
-          {/* Faux leather straps */}
-          <div style={{ position: "absolute", left: 14, top: 0, bottom: 0, width: 6, background: active ? "#2c3e50" : "#d4a373", borderLeft: "2px solid #1c1f3a", borderRight: "2px solid #1c1f3a", opacity: 0.8 }} />
-          <div style={{ position: "absolute", right: 14, top: 0, bottom: 0, width: 6, background: active ? "#2c3e50" : "#d4a373", borderLeft: "2px solid #1c1f3a", borderRight: "2px solid #1c1f3a", opacity: 0.8 }} />
-
           {/* Icon & Text Container */}
           <div style={{
             position: "relative", zIndex: 10,
             display: "flex", alignItems: "center", gap: "4px",
-            background: active ? "transparent" : "#fdfcf9",
-            padding: "0 4px", borderRadius: "3px",
+            background: "transparent",
+            padding: "0 4px",
           }}>
             <Icon style={{
               width: 12, height: 12,
@@ -146,11 +142,10 @@ const BriefcaseNavItem = ({
             <span style={{
               fontFamily: "JetBrains Mono, monospace",
               fontSize: "9px",
-              fontWeight: 900,
+              fontWeight: 800,
               textTransform: "uppercase",
-              letterSpacing: "0.05em",
+              letterSpacing: "0.08em",
               color: active ? "#ffffff" : "#1c1f3a",
-              textShadow: active ? "1px 1px 0 rgba(0,0,0,0.2)" : "none",
             }}>
               {name}
             </span>
@@ -167,31 +162,35 @@ const BriefcaseNavItem = ({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            gap: "5px",
             position: "relative",
           }}
         >
-          {/* Faux leather straps continuing */}
-          <div style={{ position: "absolute", left: 14, top: 0, bottom: 0, width: 6, background: active ? "#1a252f" : "#a67c52", borderLeft: "2px solid #1c1f3a", borderRight: "2px solid #1c1f3a" }} />
-          <div style={{ position: "absolute", right: 14, top: 0, bottom: 0, width: 6, background: active ? "#1a252f" : "#a67c52", borderLeft: "2px solid #1c1f3a", borderRight: "2px solid #1c1f3a" }} />
-
-          {/* Golden Locks */}
           <span style={{
-            position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)",
-            width: 4, height: 4, borderRadius: "50%",
-            background: "#fbbf24", boxShadow: "inset -1px -1px 0 rgba(0,0,0,0.4), 0 0 2px rgba(251,191,36,0.5)"
+            position: "absolute", left: 4, top: "50%", transform: "translateY(-50%)",
+            width: 3, height: 3, borderRadius: "50%", background: "rgba(255,255,255,0.15)"
           }} />
           <span style={{
-            position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)",
             width: 4, height: 4, borderRadius: "50%",
-            background: "#fbbf24", boxShadow: "inset -1px -1px 0 rgba(0,0,0,0.4), 0 0 2px rgba(251,191,36,0.5)"
+            background: active ? "#FFD600" : "rgba(255,255,255,0.10)",
+            boxShadow: active ? `0 0 6px #FFD600` : "none",
+            transition: "all 0.2s"
           }} />
-
-          {/* Center combination lock dial */}
           <span style={{
-            width: 10, height: 6, borderRadius: "2px",
-            background: "#9ca3af", border: "1px solid #1c1f3a",
-            boxShadow: "inset 0 1px 1px rgba(255,255,255,0.5)",
-            zIndex: 10
+            width: 14, height: 3, borderRadius: "2px",
+            background: active ? "#00E5FF" : "rgba(255,255,255,0.10)",
+            boxShadow: active ? "0 0 6px #00E5FF" : "none",
+            transition: "all 0.2s"
+          }} />
+          <span style={{
+            width: 4, height: 4, borderRadius: "50%",
+            background: active ? "#FF0055" : "rgba(255,255,255,0.10)",
+            boxShadow: active ? `0 0 6px #FF0055` : "none",
+            transition: "all 0.2s"
+          }} />
+          <span style={{
+            position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)",
+            width: 3, height: 3, borderRadius: "50%", background: "rgba(255,255,255,0.15)"
           }} />
         </motion.div>
 

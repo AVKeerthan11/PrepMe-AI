@@ -744,3 +744,212 @@ async def ensure_revision_session(
     db.add(sess)
     await db.flush()
     print(f"[planner] reactive session inserted for topic={topic} date={target_date}")
+
+
+class GenerateSessionBody(BaseModel):
+    subject: str
+    chapter: str
+    preferred_hours: List[int]
+    days: int = 3
+
+
+@router.post("/generate-session")
+async def generate_session(
+    body: GenerateSessionBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    today = datetime.date.today()
+    
+    # 1. Determine prerequisites
+    SUBJECT_CHAPTERS = {
+        "Science": list(SCIENCE_WEIGHTAGE.keys()),
+        "Mathematics": MATHS_TOPICS,
+        "Social": SOCIAL_TOPICS,
+        "English": ENGLISH_TOPICS
+    }
+    
+    prereqs = []
+    subject_key = None
+    for k in SUBJECT_CHAPTERS.keys():
+        if k.lower() == body.subject.lower():
+            subject_key = k
+            break
+            
+    if subject_key and body.chapter in SUBJECT_CHAPTERS[subject_key]:
+        chapters = SUBJECT_CHAPTERS[subject_key]
+        idx = chapters.index(body.chapter)
+        prereqs = chapters[:idx]
+    
+    # 2. Generate study sessions
+    sessions = []
+    hour_to_use = body.preferred_hours[0] if body.preferred_hours else 18
+    
+    for i in range(1, body.days + 1):
+        target_date = today + datetime.timedelta(days=i)
+        
+        sess = StudySession(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            date=target_date,
+            topic=body.chapter,
+            planned_minutes=SESSION_MINUTES,
+            session_type="study",
+            status="pending",
+            priority_score=0.0,
+            mastery_at_schedule=0.5,
+            micro_goals=json.dumps([]),
+        )
+        db.add(sess)
+        
+        sessions.append({
+            "id": str(sess.id),
+            "date": target_date.isoformat(),
+            "subject": body.subject,
+            "chapter": body.chapter,
+            "hour_start": hour_to_use,
+            "status": "pending",
+            "session_type": "study"
+        })
+        
+    await db.flush()
+    
+    return {
+        "sessions": sessions,
+        "prerequisites": prereqs
+    }
+
+
+@router.patch("/sessions/{session_id}/complete")
+async def complete_session_by_id(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        sess_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id format")
+
+    result = await db.execute(
+        select(StudySession).where(
+            StudySession.id == sess_uuid,
+            StudySession.user_id == user.id,
+        )
+    )
+    sess = result.scalar_one_or_none()
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    sess.status = "done"
+    await db.flush()
+
+    return _serialize_session(sess)
+
+
+@router.get("/check-completion")
+async def check_completion(
+    subject: str,
+    chapter: str,
+    date: datetime.date,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    start_of_day = datetime.datetime.combine(date, datetime.time.min)
+    end_of_day = datetime.datetime.combine(date, datetime.time.max)
+
+    # 1. Count quiz attempts
+    result = await db.execute(
+        select(func.count(QuizAttempt.id)).where(
+            QuizAttempt.user_id == user.id,
+            QuizAttempt.topic.icontains(chapter),
+            QuizAttempt.attempted_at >= start_of_day,
+            QuizAttempt.attempted_at <= end_of_day
+        )
+    )
+    quiz_count = result.scalar() or 0
+    
+    # 2. Tutor sessions check is skipped for now.
+    tutor_count = 0
+    
+    if quiz_count >= 2 or tutor_count >= 3:
+        # Find matching study session
+        sess_result = await db.execute(
+            select(StudySession).where(
+                StudySession.user_id == user.id,
+                StudySession.topic == chapter,
+                StudySession.date == date,
+                StudySession.status == "pending"
+            )
+        )
+        sess = sess_result.scalar_one_or_none()
+        
+        updated_session_id = None
+        if sess:
+            sess.status = "done"
+            updated_session_id = str(sess.id)
+            await db.flush()
+            
+        return {
+            "completed": True,
+            "session_id": updated_session_id
+        }
+    else:
+        return {
+            "completed": False,
+            "remaining_quiz": max(0, 2 - quiz_count),
+            "remaining_tutor": max(0, 3 - tutor_count)
+        }
+
+
+@router.post("/reschedule-missed")
+async def reschedule_missed(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    today = datetime.date.today()
+    
+    # 2. Find missed study sessions
+    result = await db.execute(
+        select(StudySession).where(
+            StudySession.user_id == user.id,
+            StudySession.status == "pending",
+            StudySession.date < today
+        ).order_by(StudySession.date)
+    )
+    missed_sessions = list(result.scalars().all())
+    
+    if not missed_sessions:
+        return {
+            "rescheduled": 0,
+            "sessions": []
+        }
+    
+    # Pre-fetch existing session counts for future dates
+    future_result = await db.execute(
+        select(StudySession.date, func.count(StudySession.id)).where(
+            StudySession.user_id == user.id,
+            StudySession.date >= today
+        ).group_by(StudySession.date)
+    )
+    daily_counts = {row[0]: row[1] for row in future_result.fetchall()}
+    
+    current_search_date = today
+    updated_sessions = []
+    
+    # 3. Reschedule each missed session
+    for session in missed_sessions:
+        while daily_counts.get(current_search_date, 0) >= 3:
+            current_search_date += datetime.timedelta(days=1)
+            
+        session.date = current_search_date
+        daily_counts[current_search_date] = daily_counts.get(current_search_date, 0) + 1
+        updated_sessions.append(session)
+        
+    await db.flush()
+    
+    # 4. Response
+    return {
+        "rescheduled": len(updated_sessions),
+        "sessions": [_serialize_session(s) for s in updated_sessions]
+    }

@@ -51,6 +51,8 @@ export default function ProfilePage() {
                 className={inputCls + " cursor-pointer"}>
                 <option value="science">NCERT Science – Class 8</option>
                 <option value="maths">NCERT Maths – Class 8</option>
+                <option value="social">NCERT Social Studies – Class 8</option>
+                <option value="english">NCERT English – Class 8</option>
               </select>
             </div>
             <div>

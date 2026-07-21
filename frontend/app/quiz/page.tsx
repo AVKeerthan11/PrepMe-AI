@@ -886,6 +886,7 @@ function ResultsScreen({ attempts, totalXP, topic, authFetch, onRetake }: {
   attempts: AttemptRecord[]; totalXP: number; topic: string
   authFetch: Function; onRetake: () => void
 }) {
+  const { profile } = useAuth()
   const correct = attempts.filter(a => a.assessment.correctness === "correct").length
   const partial = attempts.filter(a => a.assessment.correctness === "partially_correct").length
   const total   = attempts.length
@@ -903,7 +904,7 @@ function ResultsScreen({ attempts, totalXP, topic, authFetch, onRetake }: {
       method: "POST",
       body: JSON.stringify({
         question: `Based on this quiz performance, give ONE sentence of personalized study advice. Topic: ${topic}. Sure+Correct: ${sureCorrect}, Sure+Wrong: ${sureWrong}, Unsure+Correct: ${unsureCorrect}, Guessing+Wrong: ${guessWrong}. Total: ${total}. Be specific.`,
-        mastery_score: pct / 100, subject: "science", chat_history: [],
+        mastery_score: pct / 100, subject: profile?.subject ?? "science", chat_history: [],
       }),
     }).then((r: Response) => r.ok ? r.json() : null)
       .then((d: any) => d?.answer && setInsight(d.answer.split(".")[0] + "."))

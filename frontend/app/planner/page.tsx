@@ -17,6 +17,7 @@ interface PlanSession {
   duration_minutes: number; session_type: string
   micro_goals: PlanSessionGoal[]; completed: boolean
   priority_score: number; mastery_at_schedule_time: number
+  subject?: string;
 }
 interface PlanResponse {
   sessions: PlanSession[]; exam_countdown: boolean; days_remaining: number
@@ -49,32 +50,62 @@ function isoDate(d: Date): string {
 }
 
 // ── Session chip ───────────────────────────────────────────────────────────────
-function SessionChip({ s, onClick }: { s: PlanSession; onClick: () => void }) {
+function SessionChip({ s, onClick, onMarkComplete }: { s: PlanSession; onClick: () => void; onMarkComplete: (id: string, topic: string) => Promise<void> }) {
   const c = CHIP[s.session_type] ?? CHIP.study
+  const todayStr = isoDate(new Date())
+  const isMissed = !s.completed && s.date < todayStr
+  const isDone = s.completed
+  const isPending = !isDone && !isMissed
+
+  let borderClass = c.border
+  if (isDone) borderClass = "border-[#4ade80] border-[3px]" // Green border
+  else if (isMissed) borderClass = "border-[#c0392b] border-[3px]" // Red border
+  else if (isPending) borderClass = "border-[#6b7280] border-[3px]" // Grey border
+
   return (
-    <button onClick={onClick}
+    <div onClick={onClick}
       className={cn(
-        "sticky-note w-full text-left p-2 text-[10px] font-bold font-mono uppercase tracking-wider mb-3",
-        c.bg, c.border, c.rotate,
+        "sticky-note w-full text-left p-2 text-[10px] font-bold font-mono uppercase tracking-wider mb-3 cursor-pointer transition-all hover:brightness-95",
+        c.bg, borderClass, c.rotate,
         s.completed ? "opacity-60 grayscale-[0.3]" : ""
       )}>
-      <div className="flex items-center gap-1.5 mb-1 border-b border-[#1c1f3a]/20 pb-1">
-        <span className={cn("w-2 h-2 flex-shrink-0 border border-[#1c1f3a] rounded-full", c.dot)} />
-        <span className="text-[#1c1f3a]">{c.label}</span>
+      <div className="flex items-center justify-between mb-1 border-b border-[#1c1f3a]/20 pb-1">
+        <div className="flex items-center gap-1.5">
+          <span className={cn("w-2 h-2 flex-shrink-0 border border-[#1c1f3a] rounded-full", c.dot)} />
+          <span className="text-[#1c1f3a]">{c.label}</span>
+        </div>
+        {isMissed && <span className="bg-[#c0392b] text-[#fdfcf9] px-1 py-0.5 text-[8px] rounded-none border border-[#1c1f3a]">Rescheduled</span>}
+        {isDone && <span className="text-[#4ade80] text-sm font-black drop-shadow-md">✔</span>}
       </div>
+      {s.subject && (
+        <div className="mb-1">
+          <span className="bg-[#fdfcf9] text-[#1c1f3a] px-1.5 py-0.5 text-[8px] border border-[#1c1f3a]">{s.subject}</span>
+        </div>
+      )}
       <p className="truncate text-[#1c1f3a] normal-case font-serif font-bold text-sm leading-tight mt-1" style={{ whiteSpace: "normal", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
         {s.topic.split(":")[0].trim()}
       </p>
       <div className="flex justify-between items-center mt-2 pt-1 border-t border-[#1c1f3a]/20">
         <span className="text-[#1c1f3a]/70 font-mono font-bold text-[9px]"><Clock className="w-2.5 h-2.5 inline mr-1 -mt-0.5"/>{s.duration_minutes}m</span>
       </div>
+      {isPending && (
+        <button 
+          onClick={async (e) => {
+            e.stopPropagation();
+            await onMarkComplete(s.id, s.topic);
+          }}
+          className="mt-2 w-full text-center bg-[#1c1f3a] text-[#fdfcf9] py-1.5 text-[9px] hover:bg-[#c0392b] transition-colors rounded-none border border-[#1c1f3a]"
+        >
+          MARK COMPLETE
+        </button>
+      )}
       {s.completed && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
           <div className="w-full h-1 bg-[#1c1f3a] transform -rotate-12 absolute" />
           <div className="w-full h-1 bg-[#1c1f3a] transform rotate-12 absolute" />
         </div>
       )}
-    </button>
+    </div>
   )
 }
 
@@ -236,6 +267,175 @@ function StudyNowModal({ data, onClose }: { data: StudyNow; onClose: () => void 
   )
 }
 
+const SUBJECT_CHAPTERS: Record<string, string[]> = {
+  Science: [
+    "Exploring the Investigative World of Science",
+    "The Invisible Living World: Beyond Our Naked Eye",
+    "Health: The Ultimate Treasure",
+    "Electricity: Magnetic and Heating Effects",
+    "Exploring Forces",
+    "Pressure, Winds, Storms, and Cyclones",
+    "Particulate Nature of Matter",
+    "Nature of Matter: Elements, Compounds, and Mixtures",
+    "The Amazing World of Solutes, Solvents, and Solutions",
+    "Light: Mirrors and Lenses",
+    "Keeping Time with the Skies",
+  ],
+  Mathematics: [
+    "Rational Numbers",
+    "Linear Equations in One Variable",
+    "Understanding Quadrilaterals",
+    "Practical Geometry",
+    "Data Handling",
+    "Squares and Square Roots",
+    "Cubes and Cube Roots",
+    "Comparing Quantities",
+    "Algebraic Expressions and Identities",
+    "Mensuration",
+    "Exponents and Powers",
+    "Direct and Inverse Proportions",
+    "Factorisation",
+    "Introduction to Graphs",
+  ],
+  Social: [
+    "Natural Resources and Their Conservation",
+    "Reshaping India's Political Map",
+    "The Rise of the Marathas",
+    "The Colonial Era in India",
+    "Universal Franchise and India's Electoral System",
+    "The Parliamentary System: Legislature and Executive",
+    "Factors of Production",
+  ],
+  English: [
+    "The Wit that Won Hearts",
+    "A Concrete Example",
+    "Wisdom Paves the Way",
+    "A Tale of Valour: Major Somnath Sharma and the Battle of Badgam",
+    "Somebody's Mother",
+    "Verghese Kurien: I Too Had A Dream",
+    "The Case of the Fifth Word",
+    "The Magic Brush of Dreams",
+    "Spectacular Wonders",
+    "The Cherry Tree",
+    "Harvest Hymn",
+    "Waiting for the Rain",
+    "Feathered Friend",
+    "Magnifying Glass",
+    "Bibha Chowdhuri: The Beam of Light that Lit the Path for Women in Indian Science",
+  ],
+};
+
+function PlanChapterModal({ onClose, onSuccess, profile, authFetch }: { onClose: () => void, onSuccess: () => void, profile: any, authFetch: any }) {
+  const [subject, setSubject] = useState("Science");
+  const [chapter, setChapter] = useState(SUBJECT_CHAPTERS["Science"][0]);
+  const [timeSlots, setTimeSlots] = useState<string[]>([]);
+  const [days, setDays] = useState(3);
+  const [generating, setGenerating] = useState(false);
+
+  const chapters = SUBJECT_CHAPTERS[subject] || [];
+  const chapIdx = chapters.indexOf(chapter);
+  const prereqs = chapIdx > 0 ? chapters.slice(0, chapIdx) : [];
+
+  const TIME_MAP: Record<string, number> = { Morning: 6, Afternoon: 12, Evening: 17, Night: 20 };
+
+  const handleGenerate = async () => {
+    if (timeSlots.length === 0) return alert("Select at least one preferred time.");
+    setGenerating(true);
+    try {
+      const res = await authFetch("/api/planner/generate-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject, chapter, days,
+          preferred_hours: timeSlots.map(t => TIME_MAP[t])
+        })
+      });
+      if (res.ok) {
+        onSuccess();
+        onClose();
+      } else {
+        alert("Failed to generate plan.");
+      }
+    } catch (e) {
+      alert("Error generating plan.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-center items-center bg-black/60 p-4" onClick={onClose}>
+      <div className="w-[480px] max-w-full index-card animate-slide-up relative p-8" onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 text-[#1c1f3a] font-mono text-xl font-black hover:text-[#c0392b]">&times;</button>
+        <p className="font-serif font-black text-2xl text-[#1c1f3a] mb-6">Plan a Chapter</p>
+        
+        <div className="space-y-4">
+          <div>
+            <label className="font-mono text-xs font-bold uppercase tracking-wider text-[#1c1f3a] block mb-1">Subject</label>
+            <select className="w-full border-2 border-[#1c1f3a] bg-transparent p-2 font-serif text-[#1c1f3a]"
+              value={subject} onChange={e => { setSubject(e.target.value); setChapter(SUBJECT_CHAPTERS[e.target.value][0]); }}>
+              {Object.keys(SUBJECT_CHAPTERS).map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          
+          <div>
+            <label className="font-mono text-xs font-bold uppercase tracking-wider text-[#1c1f3a] block mb-1">Chapter</label>
+            <select className="w-full border-2 border-[#1c1f3a] bg-transparent p-2 font-serif text-[#1c1f3a]"
+              value={chapter} onChange={e => setChapter(e.target.value)}>
+              {chapters.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="font-mono text-xs font-bold uppercase tracking-wider text-[#1c1f3a] block mb-1">Prerequisites</label>
+            {prereqs.length === 0 ? <p className="font-mono text-[10px] text-[rgba(28,31,58,0.6)]">None</p> : (
+              <div className="flex flex-wrap gap-2">
+                {prereqs.map(p => {
+                  const mastery = profile?.mastery?.[p]?.score || 0;
+                  const isMastered = mastery >= 0.7;
+                  return (
+                    <span key={p} className={`text-[10px] font-mono px-2 py-1 uppercase tracking-wider border-2 border-[#1c1f3a] ${isMastered ? 'bg-[#4ade80]' : 'bg-[#e5e7eb]'} text-[#1c1f3a]`}>
+                      {p}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="font-mono text-xs font-bold uppercase tracking-wider text-[#1c1f3a] block mb-2">Preferred Time</label>
+            <div className="grid grid-cols-2 gap-2">
+              {["Morning", "Afternoon", "Evening", "Night"].map(t => (
+                <label key={t} className="flex items-center gap-2 font-mono text-xs cursor-pointer">
+                  <input type="checkbox" className="w-4 h-4 border-2 border-[#1c1f3a] accent-[#c0392b]"
+                    checked={timeSlots.includes(t)}
+                    onChange={e => {
+                      if (e.target.checked) setTimeSlots([...timeSlots, t]);
+                      else setTimeSlots(timeSlots.filter(x => x !== t));
+                    }}
+                  />
+                  {t}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="font-mono text-xs font-bold uppercase tracking-wider text-[#1c1f3a] block mb-1">Number of Days: {days}</label>
+            <input type="range" min="1" max="7" value={days} onChange={e => setDays(Number(e.target.value))} className="w-full accent-[#c0392b]" />
+          </div>
+
+          <button onClick={handleGenerate} disabled={generating}
+            className="w-full font-mono font-black text-sm text-[#fdfcf9] bg-[#1c1f3a] border-2 border-[#1c1f3a] px-4 py-4 uppercase tracking-widest hover:bg-[#c0392b] transition-colors shadow-[4px_4px_0_rgba(28,31,58,0.15)] mt-6">
+            {generating ? "GENERATING..." : "GENERATE STUDY PLAN"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Planner Page ──────────────────────────────────────────────────────────
 export default function PlannerPage() {
   const { profile, authFetch, refreshProfile, subjectVersion } = useAuth()
@@ -245,9 +445,12 @@ export default function PlannerPage() {
   const [error, setError]         = useState("")
   const [weekStart, setWeekStart] = useState<Date>(getMonday(new Date()))
   const [filter, setFilter]       = useState("all")
+  const [subjectFilter, setSubjectFilter] = useState("All")
   const [selected, setSelected]   = useState<PlanSession | null>(null)
   const [studyNow, setStudyNow]   = useState<StudyNow | null>(null)
   const [regenerating, setRegen]  = useState(false)
+  const [reschedulingMissed, setReschedulingMissed] = useState(false)
+  const [planModalOpen, setPlanModalOpen] = useState(false)
   const [burnoutWarnings, setBurnoutWarnings] = useState<any[]>([])
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
 
@@ -295,6 +498,28 @@ export default function PlannerPage() {
     window.addEventListener("focus", handleFocus)
     return () => window.removeEventListener("focus", handleFocus)
   }, [fetchPlan, fetchBurnoutCheck, refreshProfile])
+
+  useEffect(() => {
+    async function autoCheck() {
+      if (!plan || !plan.sessions) return;
+      const todayStr = isoDate(new Date());
+      const pendingToday = plan.sessions.filter(s => s.date === todayStr && !s.completed);
+      
+      let changed = false;
+      for (const s of pendingToday) {
+        try {
+          const res = await authFetch(`/api/planner/check-completion?subject=${encodeURIComponent(s.subject || subject)}&chapter=${encodeURIComponent(s.topic.split(":")[0].trim())}&date=${s.date}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.completed) changed = true;
+          }
+        } catch (err) {}
+      }
+      
+      if (changed) fetchPlan();
+    }
+    autoCheck();
+  }, [plan?.sessions, authFetch, subject, fetchPlan]);
 
   const handleToggleGoal = async (sessionId: string, goalIndex: number, done: boolean) => {
     try {
@@ -352,13 +577,39 @@ export default function PlannerPage() {
     setRegen(false)
   }
 
+  const handleRescheduleMissed = async () => {
+    setReschedulingMissed(true)
+    try {
+      const res = await authFetch("/api/planner/reschedule-missed", { method: "POST" })
+      if (!res.ok) throw new Error("Failed to reschedule missed sessions")
+      await fetchPlan()
+    } catch (err) {
+      console.error(err)
+      alert("Error rescheduling missed sessions")
+    } finally {
+      setReschedulingMissed(false)
+    }
+  }
+
   // Build week days
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
+  const getSubjectForTopic = (topic: string) => {
+    const t = topic.split(":")[0].trim()
+    for (const [sub, chapters] of Object.entries(SUBJECT_CHAPTERS)) {
+      if (chapters.includes(t)) return sub.toLowerCase()
+    }
+    return "science" // default fallback
+  }
+
   // Filter sessions
-  const filtered = (plan?.sessions ?? []).filter(s =>
-    filter === "all" || s.session_type === filter
-  )
+  const filtered = (plan?.sessions ?? []).filter(s => {
+    const typeMatch = filter === "all" || s.session_type === filter;
+    const sSub = s.subject?.toLowerCase() || getSubjectForTopic(s.topic);
+    const sf = subjectFilter === "Social Studies" ? "social" : subjectFilter.toLowerCase();
+    const subjMatch = subjectFilter === "All" || sSub === sf;
+    return typeMatch && subjMatch;
+  })
 
   // Sessions by date
   const byDate: Record<string, PlanSession[]> = {}
@@ -374,6 +625,10 @@ export default function PlannerPage() {
   })
   const completedToday = filtered.filter(s => s.date === isoDate(new Date()) && s.completed).length
   const hoursPlanned   = weekSessions.reduce((a, s) => a + s.duration_minutes, 0) / 60
+  
+  const missedSessions = (plan?.sessions ?? []).filter(s => !s.completed && s.date < isoDate(new Date()))
+  const hasMissed = missedSessions.length > 0
+
   const weakest = (() => {
     const mastery = profile?.mastery
     if (!mastery || Object.keys(mastery).length === 0) return "—"
@@ -428,9 +683,19 @@ export default function PlannerPage() {
             <h1 className="font-serif font-black text-[2.2rem] text-[#1c1f3a] leading-none animate-[slide-right_0.5s_ease-out_0.2s_both]">Study Planner</h1>
           </div>
           <div className="flex gap-2">
+            {hasMissed && (
+              <button onClick={handleRescheduleMissed} disabled={reschedulingMissed}
+                className="brut-btn brut-btn-red px-4 py-2 text-xs flex items-center gap-1.5 font-bold">
+                <AlertTriangle className={cn("w-3.5 h-3.5", reschedulingMissed && "animate-pulse")} /> {reschedulingMissed ? "Rescheduling…" : "Reschedule Missed"}
+              </button>
+            )}
             <button onClick={handleStudyNow}
               className="brut-btn brut-btn-pink px-4 py-2 text-xs flex items-center gap-1.5 font-bold">
               <Play className="w-3 h-3 fill-current" /> Study Now
+            </button>
+            <button onClick={() => setPlanModalOpen(true)}
+              className="brut-btn brut-btn-outline px-4 py-2 text-xs flex items-center gap-1.5 font-bold">
+              Plan a Chapter
             </button>
             <button onClick={handleRegenerate} disabled={regenerating}
               className="brut-btn brut-btn-outline px-4 py-2 text-xs flex items-center gap-1.5 font-bold">
@@ -458,6 +723,21 @@ export default function PlannerPage() {
                 </p>
               )}
             </div>
+          ))}
+        </div>
+
+        {/* Subject Filter tabs */}
+        <div className="flex gap-1.5 mb-2 overflow-x-auto pb-1 hide-scrollbar">
+          {["All","Science","Mathematics","Social Studies","English"].map(f => (
+            <button key={f} onClick={() => setSubjectFilter(f)}
+              className={cn(
+                "whitespace-nowrap px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider font-mono border transition-colors",
+                subjectFilter === f
+                  ? "bg-[#4A6FA5] text-white border-[#4A6FA5]"
+                  : "border-[rgba(28,31,58,0.10)] text-[rgba(28,31,58,0.40)] hover:border-[rgba(28,31,58,0.30)] hover:text-[#1c1f3a]"
+              )}>
+              {f}
+            </button>
           ))}
         </div>
 
@@ -573,7 +853,7 @@ export default function PlannerPage() {
                       <p className="font-mono text-[10px] text-[rgba(28,31,58,0.30)] text-center mt-6 italic font-bold">Free day</p>
                     ) : (
                       daySessions.map(s => (
-                        <SessionChip key={s.id} s={s} onClick={() => setSelected(s)} />
+                        <SessionChip key={s.id} s={s} onClick={() => setSelected(s)} onMarkComplete={handleComplete} />
                       ))
                     )}
                   </div>
@@ -604,6 +884,16 @@ export default function PlannerPage() {
       {/* Study Now modal */}
       {studyNow && (
         <StudyNowModal data={studyNow} onClose={() => setStudyNow(null)} />
+      )}
+
+      {/* Plan Chapter modal */}
+      {planModalOpen && (
+        <PlanChapterModal 
+          onClose={() => setPlanModalOpen(false)} 
+          onSuccess={fetchPlan}
+          profile={profile}
+          authFetch={authFetch}
+        />
       )}
     </AppShell>
   )

@@ -25,7 +25,7 @@ export function Sidebar() {
 
   const handleLogout = () => { logout(); router.push("/login") }
 
-  const switchSubject = async (subject: "science" | "maths") => {
+  const switchSubject = async (subject: "science" | "maths" | "social" | "english") => {
     if (profile?.subject === subject) return
     await authFetch("/api/profile/", { method: "PATCH", body: JSON.stringify({ subject }) })
     await refreshProfile()
@@ -83,7 +83,7 @@ export function Sidebar() {
         <div className="pt-3 mt-2 border-t border-[#2A2A2A]">
           <p className="section-label px-3 mb-2">Subject</p>
           <div className="flex gap-1.5 px-1">
-            {(["science", "maths"] as const).map(s => (
+            {(["science", "maths", "social", "english"] as const).map(s => (
               <button key={s} onClick={() => switchSubject(s)}
                 className={cn(
                   "flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-100",
