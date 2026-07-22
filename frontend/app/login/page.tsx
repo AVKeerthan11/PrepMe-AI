@@ -66,7 +66,7 @@ export default function LoginPage() {
       if (user.onboarding_complete === false) {
         router.replace("/onboarding")
       } else {
-        router.replace("/home")
+        router.replace("/dashboard")
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed.")

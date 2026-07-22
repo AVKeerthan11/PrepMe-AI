@@ -31,6 +31,54 @@ interface Analytics {
   priority_queue: { topic: string; score: number; reason: string }[]
 }
 
+const AVATAR_DIALOGS: Record<string, string[]> = {
+  "1": [
+    "Hey! I was just adjusting my glasses and looking over our notes. Ready to swoop in and tackle a couple of chapters together today?",
+    "Night or day, my eyes are wide open and ready to go! Pick a subject, and let's make today count.",
+    "Guess who's excited to learn today? (Spoiler: it's both of us!) Let's crack open some questions and get those easy marks."
+  ],
+  "2": [
+    "Hey human! Landed right on time. Put on your thinking helmet and let's go explore some new topics today!",
+    "Meow-doy! Floating around without you was getting boring. Come on, let's zoom through these practice questions!",
+    "3... 2... 1... Houston, we have a student! So awesome to see you. Ready to make today's study session out of this world?"
+  ],
+  "3": [
+    "Hey! Was just sharpening my tail and thinking of some cool tricks to beat today's quiz. Let's do this!",
+    "You're back! Perfect timing—I've got my sights locked onto our daily goal. Let me show you how to solve these smart and fast!",
+    "Sly minds think alike! Let's stay super focused today, outsmart those tricky questions, and grab a high score."
+  ],
+  "4": [
+    "Hiiii! *Gives huge bear hug* I missed you! Grab your notebook—we're gonna bring the big energy and crush today's goals!",
+    "Look who just logged in! You're stronger than any tough problem in this book. Let's roar through these sessions today!",
+    "Boom! Step one complete: you showed up! Now step two: let's have some fun and collect some awesome scores together!"
+  ],
+  "5": [
+    "Hey buddy! Just finished fixing up our study dashboard with my wrench. Take a seat, relax, and let's work on a chapter together!",
+    "No need to rush! Even the biggest, coolest machines are built one small screw at a time. Let's build up your score today!",
+    "Munching on some bamboo and getting ready for you! Got any mistakes from yesterday? Bring 'em here, let's fix 'em up!"
+  ],
+  "6": [
+    "Whoa! You logged in so fast you almost made me change colors! What are we blending into today? Science or Maths?",
+    "Hey hey! I was just practicing blending in with the background, but I saw you and had to say hi! Ready to adapt and conquer today?",
+    "New topic ahead? No problem at all! We can change our style and handle anything this paper throws at us. Let's go!"
+  ],
+  "7": [
+    "Hop, hop, hop! You're here! I've been twitching my ears waiting for you. Let's bounce right into today's revision!",
+    "Beep-boop! My speed sensors say you're on a roll lately! Keep those feet moving and let's race through today's practice set!",
+    "Hey there! No time to lose—our goals are right around the corner! Let me run alongside you for today's study session!"
+  ],
+  "8": [
+    "Yay, you're here! Take a deep breath, stretch a bit, and let's flutter through today's topics together.",
+    "Hi bright mind! Did you know every little practice question you try makes your wings a little stronger? Let's fly high today!",
+    "So happy to see you! Learning takes time, but you're doing amazing. Let's spread our wings and enjoy today's session!"
+  ]
+}
+
+function getRandomDialog(avatarId: string): string {
+  const dialogs = AVATAR_DIALOGS[avatarId] || AVATAR_DIALOGS["1"]
+  return dialogs[Math.floor(Math.random() * dialogs.length)]
+}
+
 function MasteryBar({ score }: { score: number }) {
   return (
     <div className="flex flex-col gap-1.5 group/bar cursor-default flex-1 mr-4">
@@ -154,6 +202,14 @@ export default function Dashboard() {
   const [displayed, setDisplayed] = useState("")
   const [doneTyping, setDoneTyping] = useState(false)
   const enrolledSubjects = getEnrolledSubjects()
+  const [avatarDialog, setAvatarDialog] = useState("")
+
+  useEffect(() => {
+    if (profile?.avatar) {
+      const avatarId = profile.avatar.replace("avatar-", "")
+      setAvatarDialog(getRandomDialog(avatarId))
+    }
+  }, [profile?.avatar])
 
   useEffect(() => {
     const token =
@@ -249,20 +305,40 @@ export default function Dashboard() {
     <AppShell>
       <div className="space-y-7">
         <div className="border-b border-[rgba(28,31,58,0.08)] pb-8 mb-4 animate-slide-right w-full">
-          <div className="w-full flex flex-col items-center justify-center animate-[slide-right_0.5s_ease-out_0.2s_both]">
-            <p
-              className="section-label mb-2 text-xs self-start"
-              style={{
-                background: "rgba(74,111,165,0.12)",
-                color: "#4A6FA5",
-                border: "1px solid rgba(74,111,165,0.25)",
-              }}
-            >
-              Dashboard
-            </p>
-            <div className="torn-scrap">
+          <div className="w-full flex flex-col md:flex-row items-center justify-start gap-6 md:gap-8 animate-[slide-right_0.5s_ease-out_0.2s_both]">
+            
+            {/* Avatar & Speech Bubble Grouping */}
+            {/* Avatar & Speech Bubble Grouping */}
+            {profile?.avatar && (
+              <div className="flex flex-col sm:flex-row items-center gap-4 flex-shrink-0">
+                {/* Avatar Image (Bigger with Natural Drop-Shadow) */}
+                <div className="relative flex-shrink-0 animate-[float_3s_ease-in-out_infinite]">
+                  <img 
+                    src={`/greetings/greeting-${profile.avatar.replace('avatar-', '')}.png`}
+                    alt="Greeting Avatar"
+                    className="w-56 h-56 md:w-72 md:h-72 object-contain filter drop-shadow-[0_10px_15px_rgba(28,31,58,0.25)] select-none"
+                  />
+                </div>
+
+                {/* Speech Bubble Positioned cleanly to the Right */}
+                {avatarDialog && (
+                  <div className="relative w-60 sm:w-64 md:w-72 flex-shrink-0 animate-[slide-right_0.6s_ease-out_0.8s_both]">
+                    <div className="relative bg-white border-2 border-[#1c1f3a] rounded-xl p-4 shadow-[4px_4px_0px_rgba(28,31,58,0.2)]">
+                      {/* Left-pointing tail connecting to the Avatar */}
+                      <div className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-l-2 border-b-2 border-[#1c1f3a] transform rotate-45 z-10" />
+                      <p className="font-mono text-xs md:text-sm text-[#1c1f3a] leading-relaxed relative z-20">
+                        {avatarDialog}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Welcome Back Card (Pushed right so it doesn't obstruct anything) */}
+            <div className="torn-scrap md:ml-4 flex-shrink-0">
               <div className="scrap-pin" />
-              <h1 className="font-serif font-black text-5xl md:text-6xl text-[#1c1f3a] leading-[1.1] tracking-tighter drop-shadow-[2px_2px_0px_rgba(74,111,165,0.3)]">
+              <h1 className="font-serif font-black text-4xl sm:text-5xl md:text-6xl text-[#1c1f3a] leading-[1.1] tracking-tighter drop-shadow-[2px_2px_0px_rgba(74,111,165,0.3)]">
                 {displayed.split("\n").map((line, i) => (
                   <span key={i}>
                     {line}
@@ -274,7 +350,7 @@ export default function Dashboard() {
                     style={{
                       display: "inline-block",
                       width: "3px",
-                      height: "0.85em",
+                      height: "4.85em",
                       background: "#4A6FA5",
                       marginLeft: "2px",
                       verticalAlign: "middle",
@@ -284,6 +360,7 @@ export default function Dashboard() {
                 )}
               </h1>
             </div>
+
           </div>
         </div>
 
@@ -358,7 +435,7 @@ export default function Dashboard() {
             </div>
             {top3.length > 0 ? (
               <ol className="space-y-3 list-decimal list-inside">
-                {top3.map((item, idx) => (
+                {top3.map((item) => (
                   <li key={item.topic} className="font-mono text-[10px] text-[#1c1f3a]">
                     <span className="font-bold uppercase tracking-wide">{item.topic}</span>
                     <span className="block text-[9px] text-[rgba(28,31,58,0.45)] mt-0.5 ml-4">

@@ -6,6 +6,7 @@ import { isApiSubject, normalizeSubject, toApiSubject } from "@/lib/subjects"
 import { buildPlaceholderProfile, getMockResponse } from "@/lib/subject-mocks"
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const AUTH_CHANGED_EVENT = "prepme-auth-changed"
 
 export interface Profile {
   id: string
@@ -15,6 +16,7 @@ export interface Profile {
   exam_date: string | null
   days_to_exam: number
   daily_hours: number
+  avatar?: string
   mastery: Record<string, { score: number; sessions_done: number; last_tested: string | null }>
 }
 
@@ -90,14 +92,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    const stored =
-      localStorage.getItem("prepme_token") || localStorage.getItem("token")
-    if (stored) {
+    const syncSession = () => {
+      const stored =
+        localStorage.getItem("prepme_token") || localStorage.getItem("token")
       setToken(stored)
       setLoading(false)
-      void fetchProfile(stored)
-    } else {
-      setLoading(false)
+      if (stored) {
+        void fetchProfile(stored)
+      } else {
+        setProfile(null)
+      }
+    }
+
+    syncSession()
+
+    const handleAuthChange = () => {
+      syncSession()
+    }
+
+    window.addEventListener(AUTH_CHANGED_EVENT, handleAuthChange)
+    window.addEventListener("storage", handleAuthChange)
+
+    return () => {
+      window.removeEventListener(AUTH_CHANGED_EVENT, handleAuthChange)
+      window.removeEventListener("storage", handleAuthChange)
     }
   }, [fetchProfile])
 

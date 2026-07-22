@@ -449,7 +449,7 @@ export default function TutorPage() {
 
         {/* Header */}
         <div className="mb-3">
-          <p className="section-label pink mb-1.5">AI Tutor</p>
+          
           <h1 className="font-serif font-black text-[2rem] text-[#1A1A1A] leading-none">Ask anything.</h1>
           <p className="text-[#999] text-xs font-mono mt-1">
             {normalizedSubject === "maths" ? "NCERT Class 8 Maths" 

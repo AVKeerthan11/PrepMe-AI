@@ -33,6 +33,7 @@ class User(Base):
     subject: Mapped[str] = mapped_column(String(50), nullable=False, default="science")  # "science" | "maths"
     exam_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     daily_hours: Mapped[float] = mapped_column(Float, nullable=False, default=3.0)
+    avatar: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="avatar-1")
 
     # Relationships
     mastery_scores: Mapped[List["MasteryScore"]] = relationship(
@@ -47,6 +48,11 @@ class User(Base):
     )
     study_sessions: Mapped[List["StudySession"]] = relationship(
         "StudySession",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    doubt_sessions: Mapped[List["DoubtSession"]] = relationship(
+        "DoubtSession",
         back_populates="user",
         cascade="all, delete-orphan"
     )
@@ -136,7 +142,10 @@ class StudySession(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    subject: Mapped[str] = mapped_column(String(50), nullable=False, default="science", index=True)
+    chapter: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    hour_start: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     topic: Mapped[str] = mapped_column(String(255), nullable=False)
     planned_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     actual_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -151,6 +160,25 @@ class StudySession(Base):
 
     def __repr__(self) -> str:
         return f"<StudySession(user_id={self.user_id}, date={self.date}, topic={self.topic}, status={self.status})>"
+
+
+class DoubtSession(Base):
+    """Tutor question tracking for planner completion checks"""
+    __tablename__ = "doubt_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    subject: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    chapter: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    user: Mapped["User"] = relationship("User", back_populates="doubt_sessions")
+
+    def __repr__(self) -> str:
+        return f"<DoubtSession(user_id={self.user_id}, chapter={self.chapter})>"
 
 
 class StudyPlan(Base):

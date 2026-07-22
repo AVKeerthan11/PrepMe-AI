@@ -26,6 +26,7 @@ class ProfilePatch(BaseModel):
     subject: Optional[str] = None
     exam_date: Optional[str] = None
     daily_hours: Optional[float] = None
+    avatar: Optional[str] = None
 
 
 class MasteryUpdateReq(BaseModel):
@@ -78,6 +79,7 @@ async def get_profile(
         "exam_date": user.exam_date.isoformat() if user.exam_date else None,
         "days_to_exam": _days_to_exam(user),
         "daily_hours": user.daily_hours,
+        "avatar": user.avatar,
         "mastery": _mastery_dict(scores, user.subject),
     }
 
@@ -96,6 +98,8 @@ async def update_profile(
         user.exam_date = datetime.date.fromisoformat(body.exam_date)
     if body.daily_hours is not None:
         user.daily_hours = max(0.5, min(12.0, body.daily_hours))
+    if body.avatar is not None:
+        user.avatar = body.avatar
     await db.flush()
     return {"ok": True}
 

@@ -67,7 +67,9 @@ export default function AnalyticsPage() {
   const [prediction, setPrediction] = useState<ExamPrediction | null>(null)
   const [predictionLoading, setPredictionLoading] = useState(true)
   const [predictionError, setPredictionError] = useState(false)
-  const [selectedSubject, setSelectedSubject] = useState(profile?.subject ?? "science")
+  
+  // Read subject directly from profile, not from local state
+  const selectedSubject = profile?.subject ?? "science"
 
   const toApiSubject = (s: string) => {
     if (s === "Social Studies" || s === "social") return "social"
@@ -75,10 +77,6 @@ export default function AnalyticsPage() {
     if (s === "English" || s === "english") return "english"
     return "science"
   }
-
-  useEffect(() => {
-    setSelectedSubject(profile?.subject ?? "science")
-  }, [profile?.subject])
 
   useEffect(() => {
     setData(null)
@@ -121,25 +119,8 @@ export default function AnalyticsPage() {
     <AppShell>
       <div className="space-y-6">
         <div>
-          <p className="section-label pink mb-2">Insights</p>
+          
           <h1 className="font-serif font-black text-3xl text-[#1c1f3a]">Analytics</h1>
-        </div>
-
-        <div className="flex gap-1.5 flex-wrap">
-          {(["Science", "Mathematics", "Social Studies", "English"] as const).map((label) => (
-            <button
-              key={label}
-              onClick={() => setSelectedSubject(label)}
-              className={cn(
-                "px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider font-mono border transition-colors",
-                toApiSubject(selectedSubject) === toApiSubject(label)
-                  ? "bg-[#4A6FA5] text-white border-[#4A6FA5]"
-                  : "border-[rgba(28,31,58,0.10)] text-[rgba(28,31,58,0.40)] hover:border-[rgba(28,31,58,0.30)] hover:text-[#1c1f3a]"
-              )}
-            >
-              {label}
-            </button>
-          ))}
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 pt-4 pl-4">
