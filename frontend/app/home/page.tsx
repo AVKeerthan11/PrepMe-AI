@@ -350,7 +350,7 @@ export default function Dashboard() {
                     style={{
                       display: "inline-block",
                       width: "3px",
-                      height: "4.85em",
+                      height: "0.85em",
                       background: "#4A6FA5",
                       marginLeft: "2px",
                       verticalAlign: "middle",
