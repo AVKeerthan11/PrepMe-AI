@@ -6,17 +6,18 @@ import json
 import datetime
 from typing import List, Optional, Set, Dict
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, func, or_
 
 from db.database import get_db
-from db.models import User, StudySession, MasteryScore, QuizAttempt
+from db.models import User, StudySession, MasteryScore, QuizAttempt, DoubtSession
 from db.crud import (
     get_mastery_scores_by_user, get_mastery_score_by_topic,
     upsert_mastery_score, create
 )
 from routers.deps import get_current_user
+from services.exam_service import SUBJECT_CHAPTERS
 
 router = APIRouter(prefix="/api/planner", tags=["Planner"])
 
@@ -100,18 +101,71 @@ def _weightage_for(user: User) -> dict:
     return SCIENCE_WEIGHTAGE
 
 
-def _subject_topics(user: User) -> Set[str]:
-    return set(_weightage_for(user).keys())
+def _normalize_subject(subject: Optional[str]) -> str:
+    value = (subject or "science").lower()
+    if value == "all":
+        return "all"
+    if "math" in value:
+        return "maths"
+    if "social" in value:
+        return "social"
+    if "english" in value:
+        return "english"
+    return "science"
 
 
-def _filter_scores_for_subject(scores: list, user: User) -> list:
-    topics = _subject_topics(user)
+def _display_subject(subject: Optional[str]) -> str:
+    normalized = _normalize_subject(subject)
+    if normalized == "maths":
+        return "Mathematics"
+    if normalized == "social":
+        return "Social Studies"
+    if normalized == "english":
+        return "English"
+    if normalized == "all":
+        return "All"
+    return "Science"
+
+
+def _weightage_for_subject(subject: Optional[str]) -> dict:
+    normalized = _normalize_subject(subject)
+    if normalized == "science":
+        return SCIENCE_WEIGHTAGE
+    if normalized == "maths":
+        return MATHS_WEIGHTAGE
+    if normalized == "social":
+        return SOCIAL_WEIGHTAGE
+    if normalized == "english":
+        return ENGLISH_WEIGHTAGE
+    return SCIENCE_WEIGHTAGE
+
+
+def _subject_topics(user: User, subject: Optional[str] = None) -> Set[str]:
+    if subject == "all":
+        topics: Set[str] = set()
+        for chapter_list in SUBJECT_CHAPTERS.values():
+            topics.update(chapter_list)
+        return topics
+    if subject is None:
+        return set(_weightage_for(user).keys())
+    return set(_weightage_for_subject(subject).keys())
+
+
+def _filter_scores_for_subject(scores: list, user: User, subject: Optional[str] = None) -> list:
+    topics = _subject_topics(user, subject)
     return [s for s in scores if s.topic in topics]
 
 
-def _filter_sessions_for_subject(sessions: list, user: User) -> list:
-    topics = _subject_topics(user)
-    return [s for s in sessions if s.topic in topics or s.session_type == "break"]
+def _filter_sessions_for_subject(sessions: list, user: User, subject: Optional[str] = None) -> list:
+    if subject == "all":
+        return sessions
+    topics = _subject_topics(user, subject)
+    return [
+        s for s in sessions
+        if s.session_type == "break"
+        or (getattr(s, "subject", None) and _normalize_subject(getattr(s, "subject", None)) == _normalize_subject(subject or user.subject))
+        or s.topic in topics
+    ]
 
 
 def _max_sessions_per_day(user: User) -> int:
@@ -208,8 +262,13 @@ def _serialize_session(s: StudySession) -> dict:
     goals = normalize_goals(goals)
     return {
         "id": str(s.id),
+        "subject": _display_subject(getattr(s, "subject", None) or "science"),
+        "subject_key": _normalize_subject(getattr(s, "subject", None) or "science"),
+        "chapter": getattr(s, "chapter", None) or s.topic,
         "topic": s.topic,
         "date": s.date.isoformat(),
+        "hour_start": getattr(s, "hour_start", None),
+        "status": s.status,
         "duration_minutes": s.planned_minutes,
         "session_type": s.session_type,
         "micro_goals": goals,
@@ -217,6 +276,49 @@ def _serialize_session(s: StudySession) -> dict:
         "priority_score": s.priority_score,
         "mastery_at_schedule_time": s.mastery_at_schedule,
     }
+
+
+def _chapter_prerequisites(subject: str, chapter: str) -> List[str]:
+    chapters = SUBJECT_CHAPTERS.get(_normalize_subject(subject), SUBJECT_CHAPTERS["science"])
+    if chapter not in chapters:
+        return []
+    index = chapters.index(chapter)
+    return chapters[:index]
+
+
+async def _count_sessions_for_date(db: AsyncSession, user_id, session_date: datetime.date) -> int:
+    result = await db.execute(
+        select(func.count(StudySession.id)).where(
+            StudySession.user_id == user_id,
+            StudySession.date == session_date,
+        )
+    )
+    return int(result.scalar_one() or 0)
+
+
+async def _next_available_schedule_date(db: AsyncSession, user_id, start_date: datetime.date) -> datetime.date:
+    candidate = start_date
+    while True:
+        if await _count_sessions_for_date(db, user_id, candidate) < 3:
+            return candidate
+        candidate += datetime.timedelta(days=1)
+
+
+async def _find_session_for_completion(
+    db: AsyncSession,
+    user: User,
+    chapter: str,
+    session_date: datetime.date,
+) -> Optional[StudySession]:
+    result = await db.execute(
+        select(StudySession).where(
+            StudySession.user_id == user.id,
+            StudySession.date == session_date,
+            StudySession.status == "pending",
+            or_(StudySession.chapter == chapter, StudySession.topic == chapter),
+        ).order_by(StudySession.id.asc())
+    )
+    return result.scalars().first()
 
 
 async def _session_exists_on_date(
@@ -238,9 +340,9 @@ async def _session_exists_on_date(
     return result.scalar_one_or_none() is not None
 
 
-async def _ensure_mastery_for_subject(db: AsyncSession, user: User) -> List[MasteryScore]:
+async def _ensure_mastery_for_subject(db: AsyncSession, user: User, subject: Optional[str] = None) -> List[MasteryScore]:
     """Seed missing topic mastery at 0.5 for the active subject, then return subject scores."""
-    weightage = _weightage_for(user)
+    weightage = _weightage_for_subject(subject) if subject is not None else _weightage_for(user)
     scores = await get_mastery_scores_by_user(db, user.id)
     existing_topics = {s.topic for s in scores}
 
@@ -280,20 +382,20 @@ async def _get_quiz_attempt_counts(db: AsyncSession, user_id) -> Dict[str, int]:
 
 
 async def _build_and_save_sessions(
-    db: AsyncSession, user: User, scores: list
+    db: AsyncSession, user: User, scores: list, subject: Optional[str] = None
 ) -> List[StudySession]:
     """Distribute sessions across all 7 days starting from today, never skip a day."""
     today = datetime.date.today()
     exam_date = _exam_date(user)
     days = _days_left(user)
     exam_countdown = days <= 7
-    weightage = _weightage_for(user)
+    weightage = _weightage_for_subject(subject) if subject is not None else _weightage_for(user)
     max_per_day = _max_sessions_per_day(user)
     max_minutes = _max_minutes_per_day(user)
 
-    scores = _filter_scores_for_subject(scores, user)
+    scores = _filter_scores_for_subject(scores, user, subject)
     if not scores:
-        scores = await _ensure_mastery_for_subject(db, user)
+        scores = await _ensure_mastery_for_subject(db, user, subject)
 
     attempt_counts = await _get_quiz_attempt_counts(db, user.id)
 
@@ -343,7 +445,10 @@ async def _build_and_save_sessions(
             sess = StudySession(
                 id=uuid.uuid4(),
                 user_id=user.id,
+                subject=_normalize_subject(user.subject),
+                chapter=topic,
                 date=day,
+                hour_start=18,
                 topic=topic,
                 planned_minutes=SESSION_MINUTES,
                 session_type=stype,
@@ -369,13 +474,18 @@ async def _build_and_save_sessions(
 
 @router.get("/")
 async def get_plan(
+    subject: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Get all study sessions for authenticated user, filtered by subject if provided."""
     today = datetime.date.today()
     days = _days_left(user)
     exam_countdown = days <= 7
+    active_subject = _normalize_subject(subject or user.subject)
+    include_all = active_subject == "all"
 
+    # Query only user's sessions - NEVER seed or generate defaults
     result = await db.execute(
         select(StudySession)
         .where(
@@ -384,14 +494,12 @@ async def get_plan(
         )
         .order_by(StudySession.date, StudySession.priority_score.desc())
     )
-    sessions = _filter_sessions_for_subject(list(result.scalars().all()), user)
+    all_sessions = list(result.scalars().all())
+    
+    # Filter by subject if not "all"
+    sessions = all_sessions if include_all else _filter_sessions_for_subject(all_sessions, user, active_subject)
 
-    if not sessions:
-        scores = await _ensure_mastery_for_subject(db, user)
-        if scores:
-            sessions = await _build_and_save_sessions(db, user, scores)
-
-    # Always recompute session_type from current mastery + attempt counts
+    # Recompute session_type from current mastery + attempt counts
     if sessions:
         scores = await get_mastery_scores_by_user(db, user.id)
         mastery_map = {s.topic: s.score for s in scores}
@@ -409,7 +517,7 @@ async def get_plan(
         "sessions": [_serialize_session(s) for s in sessions],
         "exam_countdown": exam_countdown,
         "days_remaining": days,
-        "subject": user.subject,
+        "subject": active_subject,
     }
 
 
@@ -451,6 +559,323 @@ async def complete_session(
             "mastery": existing.score,
         }
     return {"ok": True, "topic": body.topic}
+
+
+class GenerateSessionBody(BaseModel):
+    subject: str
+    chapter: str
+    session_type: str = "study"  # "study" | "practice" | "revision" | "mock"
+    preferred_hours: List[int] = Field(default_factory=list)
+    days: int = 3
+    duration_minutes: int = 45  # Duration per session in minutes
+
+
+@router.post("/generate-session")
+async def generate_session(
+    body: GenerateSessionBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    subject = _normalize_subject(body.subject)
+    if subject == "all":
+        subject = _normalize_subject(user.subject)
+
+    # Convert normalized subject to SUBJECT_CHAPTERS key
+    subject_key = subject
+    if subject == "maths":
+        subject_key = "mathematics"
+    elif subject == "social":
+        subject_key = "social studies"
+    
+    chapters = SUBJECT_CHAPTERS.get(subject_key, SUBJECT_CHAPTERS["science"])
+    if body.chapter not in chapters:
+        raise HTTPException(status_code=400, detail="Chapter not found for subject")
+
+    prerequisites = _chapter_prerequisites(subject, body.chapter)
+    preferred_hours = [hour for hour in body.preferred_hours if 0 <= int(hour) <= 23]
+    if not preferred_hours:
+        preferred_hours = [18]
+    
+    # Validate session_type
+    session_type = body.session_type.lower()
+    if session_type not in ["study", "practice", "revision", "mock"]:
+        session_type = "study"
+    
+    # Validate and use duration_minutes
+    duration_minutes = max(15, min(int(body.duration_minutes or 45), 180))  # Between 15 and 180 minutes
+
+    today = datetime.date.today()
+    target_days = max(1, min(int(body.days or 3), 7))
+    sessions: List[StudySession] = []
+    candidate_date = today + datetime.timedelta(days=1)
+    study_session_count = 0
+
+    while len(sessions) < target_days:
+        candidate_date = await _next_available_schedule_date(db, user.id, candidate_date)
+
+        existing_same_day = await db.execute(
+            select(StudySession.id).where(
+                StudySession.user_id == user.id,
+                StudySession.date == candidate_date,
+                or_(StudySession.chapter == body.chapter, StudySession.topic == body.chapter),
+            ).limit(1)
+        )
+        if existing_same_day.scalar_one_or_none() is not None:
+            candidate_date += datetime.timedelta(days=1)
+            continue
+
+        hour_start = preferred_hours[len(sessions) % len(preferred_hours)]
+        session = StudySession(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            subject=subject,
+            chapter=body.chapter,
+            date=candidate_date,
+            hour_start=hour_start,
+            topic=body.chapter,
+            planned_minutes=duration_minutes,
+            actual_minutes=0,
+            session_type=session_type,
+            status="pending",
+            priority_score=0.0,
+            mastery_at_schedule=0.5,
+            micro_goals=json.dumps(normalize_goals(_micro_goals(session_type, body.chapter))),
+        )
+        db.add(session)
+        sessions.append(session)
+        study_session_count += 1
+        
+        # Insert break after every 2 study sessions on same day
+        if study_session_count % 2 == 0 and study_session_count > 0:
+            # Check if we already have 2 sessions on this date
+            count_on_date = await _count_sessions_for_date(db, user.id, candidate_date)
+            if count_on_date >= 2:
+                # Add break session with next available hour
+                next_hour = hour_start + 1 if hour_start < 23 else hour_start
+                break_session = StudySession(
+                    id=uuid.uuid4(),
+                    user_id=user.id,
+                    subject=subject,
+                    chapter="Break",
+                    date=candidate_date,
+                    hour_start=next_hour,
+                    topic="Break",
+                    planned_minutes=15,
+                    actual_minutes=0,
+                    session_type="break",
+                    status="pending",
+                    priority_score=0.0,
+                    mastery_at_schedule=0.0,
+                    micro_goals=json.dumps([]),
+                )
+                db.add(break_session)
+                sessions.append(break_session)
+        
+        candidate_date += datetime.timedelta(days=1)
+
+    await db.flush()
+
+    return {
+        "sessions": [_serialize_session(s) for s in sessions],
+        "prerequisites": prerequisites,
+    }
+
+
+@router.patch("/sessions/{session_id}/complete")
+async def complete_study_session(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark a session as complete. Updates status and timestamp in database."""
+    try:
+        sess_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id format")
+
+    result = await db.execute(
+        select(StudySession).where(
+            StudySession.id == sess_uuid,
+            StudySession.user_id == user.id,
+        )
+    )
+    sess = result.scalar_one_or_none()
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    sess.status = "done"
+    sess.actual_minutes = sess.planned_minutes
+    # Set completed_at if the column exists (handle gracefully if it doesn't)
+    if hasattr(sess, 'completed_at'):
+        sess.completed_at = datetime.datetime.now()
+    
+    await db.commit()
+    return _serialize_session(sess)
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_study_session(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a study session from database. Returns 403 if session doesn't belong to user."""
+    try:
+        sess_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id format")
+
+    result = await db.execute(
+        select(StudySession).where(
+            StudySession.id == sess_uuid,
+        )
+    )
+    sess = result.scalar_one_or_none()
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Verify ownership
+    if sess.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this session")
+
+    await db.delete(sess)
+    await db.commit()
+    return {"deleted": True, "session_id": session_id}
+
+
+@router.get("/check-completion")
+async def check_completion(
+    subject: str,
+    chapter: str,
+    date: datetime.date,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    date_str = date.isoformat()
+
+    quiz_result = await db.execute(
+        select(func.count(QuizAttempt.id)).where(
+            QuizAttempt.user_id == user.id,
+            func.date(QuizAttempt.attempted_at) == date_str,
+            QuizAttempt.topic.ilike(f"%{chapter}%"),
+        )
+    )
+    quiz_count = int(quiz_result.scalar_one() or 0)
+
+    tutor_result = await db.execute(
+        select(func.count(DoubtSession.id)).where(
+            DoubtSession.user_id == user.id,
+            func.date(DoubtSession.created_at) == date_str,
+            DoubtSession.chapter == chapter,
+        )
+    )
+    tutor_count = int(tutor_result.scalar_one() or 0)
+
+    if quiz_count >= 2 or tutor_count >= 3:
+        sess = await _find_session_for_completion(db, user, chapter, date)
+        if sess:
+            sess.status = "done"
+            sess.actual_minutes = sess.planned_minutes
+            preferred_hours = [sess.hour_start] if sess.hour_start else [18]
+            subject_key = _normalize_subject(subject)
+            await db.flush()
+
+            # Check for next chapter and auto-generate sessions
+            chapters = SUBJECT_CHAPTERS.get(subject_key, SUBJECT_CHAPTERS["science"])
+            next_chapter = None
+            new_sessions_list = []
+            
+            if chapter in chapters:
+                chapter_index = chapters.index(chapter)
+                if chapter_index < len(chapters) - 1:
+                    next_chapter = chapters[chapter_index + 1]
+                    
+                    # Generate sessions for next chapter
+                    today = datetime.date.today()
+                    candidate_date = today + datetime.timedelta(days=1)
+                    for _ in range(3):  # Generate 3 sessions for next chapter
+                        candidate_date = await _next_available_schedule_date(db, user.id, candidate_date)
+                        
+                        # Check if session already exists
+                        existing = await db.execute(
+                            select(StudySession.id).where(
+                                StudySession.user_id == user.id,
+                                StudySession.date == candidate_date,
+                                or_(StudySession.chapter == next_chapter, StudySession.topic == next_chapter),
+                            ).limit(1)
+                        )
+                        if existing.scalar_one_or_none() is None:
+                            new_sess = StudySession(
+                                id=uuid.uuid4(),
+                                user_id=user.id,
+                                subject=subject_key,
+                                chapter=next_chapter,
+                                date=candidate_date,
+                                hour_start=preferred_hours[0],
+                                topic=next_chapter,
+                                planned_minutes=SESSION_MINUTES,
+                                actual_minutes=0,
+                                session_type="study",
+                                status="pending",
+                                priority_score=0.0,
+                                mastery_at_schedule=0.5,
+                                micro_goals=json.dumps(normalize_goals(_micro_goals("study", next_chapter))),
+                            )
+                            db.add(new_sess)
+                            new_sessions_list.append(_serialize_session(new_sess))
+                        candidate_date += datetime.timedelta(days=1)
+                    
+                    await db.flush()
+
+            return {
+                "completed": True,
+                "session_id": str(sess.id),
+                "session": _serialize_session(sess),
+                "subject": subject,
+                "chapter": chapter,
+                "date": date_str,
+                "next_chapter": next_chapter,
+                "new_sessions": new_sessions_list,
+            }
+
+    return {
+        "completed": False,
+        "remaining_quiz": max(0, 2 - quiz_count),
+        "remaining_tutor": max(0, 3 - tutor_count),
+        "subject": subject,
+        "chapter": chapter,
+        "date": date_str,
+        "next_chapter": None,
+        "new_sessions": [],
+    }
+
+
+@router.post("/reschedule-missed")
+async def reschedule_missed_sessions(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    today = datetime.date.today()
+    result = await db.execute(
+        select(StudySession).where(
+            StudySession.user_id == user.id,
+            StudySession.status == "pending",
+            StudySession.date < today,
+        ).order_by(StudySession.date.asc(), StudySession.id.asc())
+    )
+    missed_sessions = list(result.scalars().all())
+
+    rescheduled_sessions: List[dict] = []
+    for sess in missed_sessions:
+        new_date = await _next_available_schedule_date(db, user.id, today + datetime.timedelta(days=1))
+        sess.date = new_date
+        await db.flush()
+        rescheduled_sessions.append(_serialize_session(sess))
+
+    return {
+        "rescheduled": len(rescheduled_sessions),
+        "sessions": rescheduled_sessions,
+    }
 
 
 @router.get("/study-now")

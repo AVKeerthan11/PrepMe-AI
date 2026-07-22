@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
+import { useEffect } from "react"
 import {
   LayoutDashboard, Bot, FileQuestion, Calendar, BarChart3, User, LogOut, ClipboardCheck,
 } from "lucide-react"
@@ -23,7 +24,17 @@ export function Sidebar() {
   const router      = useRouter()
   const { profile, authFetch, refreshProfile, logout } = useAuth()
 
-  const handleLogout = () => { logout(); router.push("/login") }
+  useEffect(() => {
+    router.prefetch("/")
+    router.prefetch("/tutor")
+    router.prefetch("/quiz")
+    router.prefetch("/planner")
+    router.prefetch("/analytics")
+    router.prefetch("/exam")
+    router.prefetch("/profile")
+  }, [router])
+
+  const handleLogout = () => { logout(); router.push("/") }
 
   const switchSubject = async (subject: "science" | "maths") => {
     if (profile?.subject === subject) return

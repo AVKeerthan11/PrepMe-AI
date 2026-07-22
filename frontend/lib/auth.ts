@@ -2,6 +2,7 @@ const TOKEN_KEY = "prepme_token"
 const USER_KEY = "prepme_user"
 const LEGACY_TOKEN_KEY = "token"
 const COOKIE_NAME = "prepme_token"
+const AUTH_CHANGED_EVENT = "prepme-auth-changed"
 
 export interface PrepMeUser {
   id?: string
@@ -66,6 +67,21 @@ export function saveSession(token: string, user: PrepMeUser): void {
     const maxAge = 60 * 60 * 24 * 7
     document.cookie = `token=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; SameSite=Lax`
   }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_CHANGED_EVENT))
+  }
+}
+
+export function clearAuthSessionKeepProfile(): void {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(LEGACY_TOKEN_KEY)
+  clearAuthCookie()
+  if (typeof document !== "undefined") {
+    document.cookie = "token=; path=/; max-age=0"
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_CHANGED_EVENT))
+  }
 }
 
 export function logout(): void {
@@ -73,6 +89,12 @@ export function logout(): void {
   localStorage.removeItem(USER_KEY)
   localStorage.removeItem(LEGACY_TOKEN_KEY)
   clearAuthCookie()
+  if (typeof document !== "undefined") {
+    document.cookie = "token=; path=/; max-age=0"
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_CHANGED_EVENT))
+  }
   window.location.href = "/"
 }
 

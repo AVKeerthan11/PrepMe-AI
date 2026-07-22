@@ -3,7 +3,7 @@
 import { useState, FormEvent } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { saveSession, type PrepMeUser } from "../../../lib/auth.ts"
+import { saveSession, type PrepMeUser } from "../../../lib/auth"
 import {
   AuthSplitLayout,
   AuthToast,

@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     
     # Groq API
     groq_api_key: str = ""
-    groq_model_primary: str = "llama-3.3-70b-versatile"
-    groq_model_fallback: str = "llama-3.1-70b-versatile"
+    groq_model_primary: str = "llama-3.1-8b-instant"
+    groq_model_fallback: str = "llama-3.3-70b-versatile"
     
     # PDF Paths
     pdf_path: str = "../ncert_science_8.pdf"

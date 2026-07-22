@@ -3,9 +3,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
 import type { AppSubject } from "@/lib/subjects"
 import { isApiSubject, normalizeSubject, toApiSubject } from "@/lib/subjects"
-import { buildPlaceholderProfile } from "@/lib/subject-mocks"
+import { buildPlaceholderProfile, getMockResponse } from "@/lib/subject-mocks"
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const AUTH_CHANGED_EVENT = "prepme-auth-changed"
 
 export interface Profile {
   id: string
@@ -15,6 +16,7 @@ export interface Profile {
   exam_date: string | null
   days_to_exam: number
   daily_hours: number
+  avatar?: string
   mastery: Record<string, { score: number; sessions_done: number; last_tested: string | null }>
 }
 
@@ -46,15 +48,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (typeof window !== "undefined"
         ? localStorage.getItem("prepme_token") || localStorage.getItem("token")
         : null)
-    const sub = profile?.subject ?? "science"
-    return fetch(`${API}${path}`, {
+    const requestInit: RequestInit = {
       ...init,
       headers: {
         "Content-Type": "application/json",
         ...(t ? { Authorization: `Bearer ${t}` } : {}),
         ...(init.headers || {}),
       },
-    })
+    }
+
+    try {
+      return await fetch(`${API}${path}`, requestInit)
+    } catch {
+      const fallback = getMockResponse(path, requestInit, profile?.subject ?? "science")
+      if (fallback) return fallback
+      throw new Error("Backend unavailable")
+    }
   }, [token, profile?.subject])
 
   const fetchProfile = useCallback(async (t: string) => {
@@ -83,14 +92,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    const stored =
-      localStorage.getItem("prepme_token") || localStorage.getItem("token")
-    if (stored) {
+    const syncSession = () => {
+      const stored =
+        localStorage.getItem("prepme_token") || localStorage.getItem("token")
       setToken(stored)
       setLoading(false)
-      void fetchProfile(stored)
-    } else {
-      setLoading(false)
+      if (stored) {
+        void fetchProfile(stored)
+      } else {
+        setProfile(null)
+      }
+    }
+
+    syncSession()
+
+    const handleAuthChange = () => {
+      syncSession()
+    }
+
+    window.addEventListener(AUTH_CHANGED_EVENT, handleAuthChange)
+    window.addEventListener("storage", handleAuthChange)
+
+    return () => {
+      window.removeEventListener(AUTH_CHANGED_EVENT, handleAuthChange)
+      window.removeEventListener("storage", handleAuthChange)
     }
   }, [fetchProfile])
 
@@ -133,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("prepme_token")
     localStorage.removeItem("prepme_user")
     document.cookie = "prepme_token=; path=/; max-age=0"
+    document.cookie = "token=; path=/; max-age=0"
     setToken(null)
     setProfile(null)
     setSubjectVersion(0)

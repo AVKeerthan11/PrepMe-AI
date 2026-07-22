@@ -345,12 +345,16 @@ function SetupScreen({ subject, onStart, onJournal, initialTopic, enhancedMode, 
     <div className="max-w-2xl mx-auto space-y-5 animate-slide-up">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <p className="section-label mb-2" style={{ background: "rgba(74,111,165,0.12)", color: "#4A6FA5", border: "1px solid rgba(74,111,165,0.25)" }}>Examination</p>
+          
           <h1 className="font-serif font-black text-4xl text-[#1c1f3a]">Registration Form</h1>
         </div>
-        <button onClick={onJournal} className="text-[10px] text-[#8888A0] font-bold uppercase tracking-wider hover:text-[#c47c2b] transition-colors rounded-none">
-          ■ Mistake Journal
-        </button>
+        <button 
+  onClick={onJournal} 
+  className="inline-flex items-center gap-2.5 px-4 py-2 bg-[#F8FAFF] hover:bg-white text-[#1C1F3A] hover:text-[#C47C2B] font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] hover:shadow-[4px_4px_0px_#C47C2B] hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all duration-150 rounded-none cursor-pointer"
+>
+  <span className="text-[#C47C2B] text-sm leading-none">■</span>
+  <span>Mistake Journal</span>
+</button>
       </div>
 
       <div className="clipboard-board">

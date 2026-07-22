@@ -10,7 +10,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!loading && !token) {
-      router.replace("/login")
+      router.replace("/auth/login")
     }
   }, [token, loading, router])
 

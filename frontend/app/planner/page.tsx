@@ -1,11 +1,11 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { AppShell } from "@/components/layout/app-shell"
 import { useAuth } from "@/lib/auth"
 import { cn } from "@/lib/utils"
-import { Calendar, Play, RefreshCw, AlertTriangle, Flame, Clock } from "lucide-react"
+import { Calendar, Play, RefreshCw, AlertTriangle, Flame, Clock, CheckCircle2 } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface PlanSessionGoal {
@@ -17,6 +17,7 @@ interface PlanSession {
   duration_minutes: number; session_type: string
   micro_goals: PlanSessionGoal[]; completed: boolean
   priority_score: number; mastery_at_schedule_time: number
+  subject?: string; subject_key?: string; chapter?: string; hour_start?: number | null; status?: string
 }
 interface PlanResponse {
   sessions: PlanSession[]; exam_countdown: boolean; days_remaining: number
@@ -35,6 +36,120 @@ const CHIP: Record<string, { bg: string; border: string; label: string; dot: str
   break:    { bg: "bg-[#e5e7eb]", border: "border-[#1c1f3a]", label: "BREAK",    dot: "bg-[#1c1f3a]", rotate: "rotate-[0deg]" },
 }
 
+const VIEW_SUBJECTS = [
+  { id: "all", label: "All" },
+  { id: "science", label: "Science" },
+  { id: "maths", label: "Mathematics" },
+  { id: "social", label: "Social Studies" },
+  { id: "english", label: "English" },
+] as const
+
+const SUBJECT_BADGES: Record<string, { bg: string; text: string; border: string }> = {
+  science: { bg: "rgba(74,111,165,0.12)", text: "#4A6FA5", border: "rgba(74,111,165,0.25)" },
+  maths: { bg: "rgba(29,53,87,0.10)", text: "#1d3557", border: "rgba(29,53,87,0.25)" },
+  social: { bg: "rgba(224,123,57,0.12)", text: "#e07b39", border: "rgba(224,123,57,0.25)" },
+  english: { bg: "rgba(94,43,151,0.12)", text: "#5e2b97", border: "rgba(94,43,151,0.25)" },
+  all: { bg: "rgba(28,31,58,0.08)", text: "#1c1f3a", border: "rgba(28,31,58,0.18)" },
+}
+
+const CHAPTERS_BY_SUBJECT: Record<string, string[]> = {
+  science: [
+    "Exploring the Investigative World of Science",
+    "The Invisible Living World: Beyond Our Naked Eye",
+    "Health: The Ultimate Treasure",
+    "Electricity: Magnetic and Heating Effects",
+    "Exploring Forces",
+    "Pressure, Winds, Storms, and Cyclones",
+    "Particulate Nature of Matter",
+    "Nature of Matter: Elements, Compounds, and Mixtures",
+    "The Amazing World of Solutes, Solvents, and Solutions",
+    "Light: Mirrors and Lenses",
+    "Keeping Time with the Skies",
+  ],
+  maths: [
+    "Rational Numbers",
+    "Linear Equations in One Variable",
+    "Understanding Quadrilaterals",
+    "Practical Geometry",
+    "Data Handling",
+    "Squares and Square Roots",
+    "Cubes and Cube Roots",
+    "Comparing Quantities",
+    "Algebraic Expressions and Identities",
+    "Mensuration",
+    "Exponents and Powers",
+    "Direct and Inverse Proportions",
+    "Factorisation",
+    "Introduction to Graphs",
+  ],
+  social: [
+    "Natural Resources and Their Conservation",
+    "Reshaping India's Political Map",
+    "The Rise of the Marathas",
+    "The Colonial Era in India",
+    "Universal Franchise and India's Electoral System",
+    "The Parliamentary System: Legislature and Executive",
+    "Factors of Production",
+  ],
+  english: [
+    "The Wit that Won Hearts",
+    "A Concrete Example",
+    "Wisdom Paves the Way",
+    "A Tale of Valour: Major Somnath Sharma and the Battle of Badgam",
+    "Somebody's Mother",
+    "Verghese Kurien: I Too Had A Dream",
+    "The Case of the Fifth Word",
+    "The Magic Brush of Dreams",
+    "Spectacular Wonders",
+    "The Cherry Tree",
+    "Harvest Hymn",
+    "Waiting for the Rain",
+    "Feathered Friend",
+    "Magnifying Glass",
+    "Bibha Chowdhuri: The Beam of Light that Lit the Path for Women in Indian Science",
+  ],
+}
+
+const TIME_PREFS = [
+  { id: "morning", label: "Morning (6am-9am)", hours: [6, 7, 8] },
+  { id: "afternoon", label: "Afternoon (12pm-3pm)", hours: [12, 13, 14] },
+  { id: "evening", label: "Evening (5pm-8pm)", hours: [17, 18, 19] },
+  { id: "night", label: "Night (8pm-11pm)", hours: [20, 21, 22] },
+] as const
+
+const MASTERED_THRESHOLD = 0.6
+
+function getSubjectKey(session: PlanSession): string {
+  if (session.subject_key) return session.subject_key
+  const raw = (session.subject || "").toLowerCase()
+  if (raw.includes("math")) return "maths"
+  if (raw.includes("social")) return "social"
+  if (raw.includes("english")) return "english"
+  if (raw.includes("science")) return "science"
+  return "science"
+}
+
+function getSubjectLabel(subjectKey: string): string {
+  return VIEW_SUBJECTS.find((item) => item.id === subjectKey)?.label ?? "Science"
+}
+
+function getSessionChapter(session: PlanSession): string {
+  return session.chapter || session.topic
+}
+
+function getDisplayStatus(session: PlanSession): "pending" | "done" | "missed" {
+  if (session.status === "done" || session.completed) return "done"
+  if ((session.status || "pending") === "pending" && session.date < isoDate(new Date())) return "missed"
+  return "pending"
+}
+
+function formatHour(hourStart?: number | null): string {
+  if (hourStart === undefined || hourStart === null) return ""
+  const period = hourStart >= 12 ? "PM" : "AM"
+  const hour = ((hourStart + 11) % 12) + 1
+  return `${hour}${period}`
+}
+
 // ── Week helpers ───────────────────────────────────────────────────────────────
 function getMonday(d: Date): Date {
   const day = d.getDay(), diff = (day === 0 ? -6 : 1 - day)
@@ -49,32 +164,138 @@ function isoDate(d: Date): string {
 }
 
 // ── Session chip ───────────────────────────────────────────────────────────────
-function SessionChip({ s, onClick }: { s: PlanSession; onClick: () => void }) {
+function SessionChip({
+  s,
+  onClick,
+  onComplete,
+  onDelete,
+  confirmDeleteId,
+  setConfirmDeleteId,
+}: {
+  s: PlanSession
+  onClick: () => void
+  onComplete: (session: PlanSession) => Promise<void>
+  onDelete: (session: PlanSession) => Promise<void>
+  confirmDeleteId: string | null
+  setConfirmDeleteId: (id: string | null) => void
+}) {
   const c = CHIP[s.session_type] ?? CHIP.study
+  const displayStatus = getDisplayStatus(s)
+  const subjectKey = getSubjectKey(s)
+  const badge = SUBJECT_BADGES[subjectKey] ?? SUBJECT_BADGES.science
+  // CHANGE 2: Bright green styling for done status
+  const statusStyles =
+    displayStatus === "done"
+      ? { borderColor: "#00c853", bgColor: "rgba(0, 200, 83, 0.12)", label: "Done", color: "#00c853" }
+      : displayStatus === "missed"
+        ? { borderColor: "#c0392b", bgColor: "transparent", label: "Rescheduled", color: "#c0392b" }
+        : { borderColor: "rgba(28,31,58,0.35)", bgColor: "transparent", label: "Pending", color: "rgba(28,31,58,0.55)" }
+
   return (
-    <button onClick={onClick}
+    <div onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onClick()
+      }}
       className={cn(
-        "sticky-note w-full text-left p-2 text-[10px] font-bold font-mono uppercase tracking-wider mb-3",
+        "sticky-note relative w-full text-left p-2 text-[10px] font-bold font-mono uppercase tracking-wider mb-3",
         c.bg, c.border, c.rotate,
         s.completed ? "opacity-60 grayscale-[0.3]" : ""
-      )}>
+      )}
+      style={{ 
+        borderColor: statusStyles.borderColor,
+        borderWidth: displayStatus === "done" ? "3px" : undefined,
+        backgroundColor: statusStyles.bgColor 
+      }}>
       <div className="flex items-center gap-1.5 mb-1 border-b border-[#1c1f3a]/20 pb-1">
         <span className={cn("w-2 h-2 flex-shrink-0 border border-[#1c1f3a] rounded-full", c.dot)} />
         <span className="text-[#1c1f3a]">{c.label}</span>
+        <span
+          className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest border"
+          style={{ borderColor: badge.border, backgroundColor: badge.bg, color: badge.text }}
+        >
+          {getSubjectLabel(subjectKey)}
+        </span>
+        {/* ADDITION 1: Session type badge */}
+        
       </div>
       <p className="truncate text-[#1c1f3a] normal-case font-serif font-bold text-sm leading-tight mt-1" style={{ whiteSpace: "normal", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-        {s.topic.split(":")[0].trim()}
+        {getSessionChapter(s).split(":")[0].trim()}
       </p>
       <div className="flex justify-between items-center mt-2 pt-1 border-t border-[#1c1f3a]/20">
-        <span className="text-[#1c1f3a]/70 font-mono font-bold text-[9px]"><Clock className="w-2.5 h-2.5 inline mr-1 -mt-0.5"/>{s.duration_minutes}m</span>
+        <span className="text-[#1c1f3a]/70 font-mono font-bold text-[9px]"><Clock className="w-2.5 h-2.5 inline mr-1 -mt-0.5"/>{s.duration_minutes}m{formatHour(s.hour_start) ? ` • ${formatHour(s.hour_start)}` : ""}</span>
+        <span className="text-[8px] font-black uppercase tracking-widest" style={{ color: statusStyles.color }}>
+          {statusStyles.label}
+        </span>
       </div>
+      {displayStatus === "pending" && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            void onComplete(s)
+          }}
+          className="mt-2 w-full border border-[#1c1f3a] bg-[#fdfcf9] px-2 py-1 text-[8px] font-black uppercase tracking-widest text-[#1c1f3a] hover:bg-[#1c1f3a] hover:text-[#fdfcf9] transition-colors"
+        >
+          Mark Complete
+        </button>
+      )}
       {s.completed && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
           <div className="w-full h-1 bg-[#1c1f3a] transform -rotate-12 absolute" />
           <div className="w-full h-1 bg-[#1c1f3a] transform rotate-12 absolute" />
         </div>
       )}
-    </button>
+      {displayStatus === "missed" && (
+        <span className="absolute top-2 right-2 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest bg-[#fff2f2] text-[#c0392b] border border-[#c0392b]">
+          Rescheduled
+        </span>
+      )}
+      {displayStatus === "done" && (
+        <span className="absolute top-2 right-2 inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-widest bg-[#eef9f1] border border-[#00c853]" style={{ color: "#00c853", fontWeight: "bold" }}>
+          <CheckCircle2 className="w-2.5 h-2.5" /> Done
+        </span>
+      )}
+      {/* CHANGE 3: Delete button with inline confirmation */}
+      {confirmDeleteId !== s.id && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            setConfirmDeleteId(s.id)
+          }}
+          className="absolute top-2 left-2 w-4 h-4 flex items-center justify-center text-[#c0392b] hover:bg-[#c0392b] hover:text-white border border-[#c0392b] text-xs font-bold transition-colors"
+          title="Delete session"
+        >
+          ×
+        </button>
+      )}
+      {confirmDeleteId === s.id && (
+        <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+          <span style={{ fontFamily: "monospace", fontSize: 11, color: "#c0392b" }}>Delete this session?</span>
+          <button
+            onClick={async (event) => {
+              event.stopPropagation()
+              await onDelete(s)
+              setConfirmDeleteId(null)
+            }}
+            style={{ background: "#c0392b", color: "#fff", border: "none", padding: "3px 10px", fontFamily: "monospace", fontSize: 11, cursor: "pointer", fontWeight: "bold" }}
+          >
+            Yes, Delete
+          </button>
+          <button
+            onClick={(event) => {
+              event.stopPropagation()
+              setConfirmDeleteId(null)
+            }}
+            style={{ background: "transparent", color: "#666", border: "1px solid #ccc", padding: "3px 10px", fontFamily: "monospace", fontSize: 11, cursor: "pointer" }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -239,7 +460,7 @@ function StudyNowModal({ data, onClose }: { data: StudyNow; onClose: () => void 
 // ── Main Planner Page ──────────────────────────────────────────────────────────
 export default function PlannerPage() {
   const { profile, authFetch, refreshProfile, subjectVersion } = useAuth()
-  const subject = profile?.subject ?? "science"
+  const [selectedSubject, setSelectedSubject] = useState<string>("all")
   const [plan, setPlan]           = useState<PlanResponse | null>(null)
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState("")
@@ -250,12 +471,57 @@ export default function PlannerPage() {
   const [regenerating, setRegen]  = useState(false)
   const [burnoutWarnings, setBurnoutWarnings] = useState<any[]>([])
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
+  const [planModalOpen, setPlanModalOpen] = useState(false)
+  const [planSubject, setPlanSubject] = useState("science")
+  const [planSessionType, setPlanSessionType] = useState("study")
+  const [planChapter, setPlanChapter] = useState("")
+  const [planDuration, setPlanDuration] = useState(45)
+  const [preferredSlots, setPreferredSlots] = useState<string[]>(["evening"])
+  const [planDays, setPlanDays] = useState(3)
+  const [planError, setPlanError] = useState("")
+  const [planning, setPlanning] = useState(false)
+  const [completionNotification, setCompletionNotification] = useState<string>("")
+  const lastCompletionCheckRef = useRef("")
+  
+  // CHANGE 1: Subject dropdown checklist states
+  const [subjectDropdownOpen, setSubjectDropdownOpen] = useState(false)
+  const [checkedSubjects, setCheckedSubjects] = useState<string[]>(["All", "Science", "Mathematics", "Social Studies", "English"])
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  
+  // CHANGE 3: Delete confirmation state
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  
+  // ADDITION 2: Session type filter state
+  const [activeTypeFilter, setActiveTypeFilter] = useState("all")
+
+  const toApiSubject = (s: string) => {
+    if (s === "all") return "all"
+    if (s === "Social Studies" || s === "social") return "social"
+    if (s === "Mathematics" || s === "mathematics" || s === "maths") return "mathematics"
+    if (s === "English" || s === "english") return "english"
+    return "science"
+  }
+
+  // CHANGE 1: Click-outside handler for dropdown
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setSubjectDropdownOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  const currentChapterList = CHAPTERS_BY_SUBJECT[planSubject] ?? CHAPTERS_BY_SUBJECT.science
+
+  const apiSubject = toApiSubject(selectedSubject)
 
   const fetchPlan = useCallback(async () => {
     setLoading(true); setError("")
     setPlan(null)
     try {
-      const res = await authFetch(`/api/planner/?subject=${subject}`)
+      const res = await authFetch(`/api/planner/?subject=${apiSubject}`)
       if (!res.ok) throw new Error("Failed to load plan")
       setPlan(await res.json())
     } catch {
@@ -263,7 +529,12 @@ export default function PlannerPage() {
     } finally {
       setLoading(false)
     }
-  }, [authFetch, subject])
+  }, [authFetch, apiSubject])
+
+  useEffect(() => {
+    if (!planModalOpen) return
+    setPlanChapter((prev) => prev && currentChapterList.includes(prev) ? prev : currentChapterList[0] ?? "")
+  }, [currentChapterList, planModalOpen])
 
   const fetchBurnoutCheck = useCallback(async () => {
     try {
@@ -284,7 +555,60 @@ export default function PlannerPage() {
   useEffect(() => {
     fetchPlan()
     fetchBurnoutCheck()
-  }, [fetchPlan, fetchBurnoutCheck, subject, subjectVersion])
+  }, [fetchPlan, fetchBurnoutCheck, selectedSubject, subjectVersion])
+
+  useEffect(() => {
+    if (!plan?.sessions?.length) return
+    const today = isoDate(new Date())
+    const pendingToday = plan.sessions.filter((session) => {
+      const status = getDisplayStatus(session)
+      return status === "pending" && session.date === today
+    })
+    if (!pendingToday.length) return
+
+    const checkKey = pendingToday
+      .map((session) => `${getSubjectKey(session)}:${getSessionChapter(session)}:${session.date}`)
+      .sort()
+      .join("|")
+    if (lastCompletionCheckRef.current === checkKey) return
+    lastCompletionCheckRef.current = checkKey
+
+    let cancelled = false
+    const run = async () => {
+      let completedAny = false
+      for (const session of pendingToday) {
+        const res = await authFetch(
+          `/api/planner/check-completion?subject=${encodeURIComponent(getSubjectKey(session))}&chapter=${encodeURIComponent(getSessionChapter(session))}&date=${today}`
+        )
+        if (!res.ok) continue
+        const data = await res.json().catch(() => ({}))
+        if (data.completed) {
+          completedAny = true
+          
+          // Handle next chapter auto-generation
+          if (data.new_sessions && data.new_sessions.length > 0) {
+            setPlan((current) => current ? {
+              ...current,
+              sessions: [...current.sessions, ...data.new_sessions],
+            } : current)
+            
+            if (data.next_chapter) {
+              setCompletionNotification(`✓ ${getSessionChapter(session)} completed! ${data.next_chapter} has been added to your plan.`)
+              setTimeout(() => setCompletionNotification(""), 5000)
+            }
+          }
+        }
+      }
+      if (!cancelled && completedAny) {
+        await fetchPlan()
+      }
+    }
+    void run()
+
+    return () => {
+      cancelled = true
+    }
+  }, [authFetch, fetchPlan, plan])
 
   useEffect(() => {
     const handleFocus = () => {
@@ -329,7 +653,7 @@ export default function PlannerPage() {
   const handleComplete = async (id: string, topic: string) => {
     await authFetch("/api/planner/complete-session", {
       method: "POST",
-      body: JSON.stringify({ session_id: id, topic, subject: profile?.subject ?? "science" }),
+      body: JSON.stringify({ session_id: id, topic, subject: apiSubject }),
     })
     // Optimistically mark done, then re-fetch so session_type reflects updated mastery
     setPlan(p => p ? {
@@ -338,6 +662,82 @@ export default function PlannerPage() {
     } : p)
     await refreshProfile()
     fetchPlan()
+  }
+
+  const handleMarkComplete = async (session: PlanSession) => {
+    const res = await authFetch(`/api/planner/sessions/${session.id}/complete`, {
+      method: "PATCH",
+    })
+    if (res.ok) {
+      setPlan((current) => current ? {
+        ...current,
+        sessions: current.sessions.map((item) => item.id === session.id ? { ...item, status: "done", completed: true } : item),
+      } : current)
+      await refreshProfile()
+    }
+  }
+
+  const handleDelete = async (session: PlanSession) => {
+    // CHANGE 3: No browser confirm needed - inline confirmation handles it
+    const res = await authFetch(`/api/planner/sessions/${session.id}`, {
+      method: "DELETE",
+    })
+    if (res.ok) {
+      setPlan((current) => current ? {
+        ...current,
+        sessions: current.sessions.filter((item) => item.id !== session.id),
+      } : current)
+    }
+  }
+
+  const handleGeneratePlan = async () => {
+    setPlanning(true)
+    setPlanError("")
+    try {
+      const selectedHours = preferredSlots.flatMap((slot) => {
+        const entry = TIME_PREFS.find((item) => item.id === slot)
+        return entry ? entry.hours : []
+      })
+      const res = await authFetch("/api/planner/generate-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: planSubject,
+          chapter: planChapter,
+          session_type: planSessionType,
+          duration_minutes: planDuration,
+          preferred_hours: selectedHours.length > 0 ? selectedHours : [18],
+          days: planDays,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "Failed to generate study plan")
+      }
+      
+      // Append new sessions to existing ones
+      setPlan((current) => current ? {
+        ...current,
+        sessions: [...current.sessions, ...(data.sessions || [])],
+      } : {
+        sessions: data.sessions || [],
+        exam_countdown: false,
+        days_remaining: 30,
+      })
+      
+      setPlanModalOpen(false)
+    } catch (err) {
+      setPlanError(err instanceof Error ? err.message : "Failed to generate study plan")
+    } finally {
+      setPlanning(false)
+    }
+  }
+
+  const handleRescheduleMissed = async () => {
+    const res = await authFetch("/api/planner/reschedule-missed", { method: "POST" })
+    if (res.ok) {
+      await fetchPlan()
+    }
   }
 
   const handleStudyNow = async () => {
@@ -355,20 +755,37 @@ export default function PlannerPage() {
   // Build week days
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
-  // Filter sessions
-  const filtered = (plan?.sessions ?? []).filter(s =>
-    filter === "all" || s.session_type === filter
+  // Filter sessions by type
+  const filtered = (plan?.sessions ?? []).filter((session) =>
+    filter === "all" || session.session_type === filter
   )
+  
+  // CHANGE 1: Filter by checked subjects
+  const visibleSessions = checkedSubjects.includes("All")
+    ? filtered
+    : filtered.filter(s => 
+        checkedSubjects.some(cs => 
+          (s.subject && s.subject.toLowerCase().includes(cs.toLowerCase())) ||
+          (getSubjectLabel(getSubjectKey(s)).toLowerCase().includes(cs.toLowerCase()))
+        )
+      )
+  
+  // ADDITION 2: Further filter by session type
+  const finalSessions = activeTypeFilter === "all"
+    ? visibleSessions
+    : visibleSessions.filter(s => 
+        (s.session_type ?? "study").toLowerCase() === activeTypeFilter
+      )
 
   // Sessions by date
   const byDate: Record<string, PlanSession[]> = {}
-  filtered.forEach(s => {
+  finalSessions.forEach(s => {
     if (!byDate[s.date]) byDate[s.date] = []
     byDate[s.date].push(s)
   })
 
   // Stats for this week
-  const weekSessions = filtered.filter(s => {
+  const weekSessions = finalSessions.filter(s => {
     const d = s.date
     return d >= isoDate(weekStart) && d <= isoDate(addDays(weekStart, 6))
   })
@@ -394,20 +811,78 @@ export default function PlannerPage() {
     return mins >= 240
   }).length
   const burnoutWarning = burnoutDays >= 5
+  const missedSessions = (plan?.sessions ?? []).filter((session) => getDisplayStatus(session) === "missed")
 
   return (
     <AppShell>
       <div className="space-y-5">
 
+        {/* CHANGE 1: Subject dropdown checklist */}
+        <div ref={dropdownRef} style={{ position: "relative", display: "inline-block" }}>
+          <button
+            onClick={() => setSubjectDropdownOpen(v => !v)}
+            className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider font-mono border transition-colors bg-[#4A6FA5] text-white border-[#4A6FA5]"
+          >
+            {checkedSubjects.includes("All") ? "All Subjects ▾" : `${checkedSubjects.length} Subject(s) ▾`}
+          </button>
+          {subjectDropdownOpen && (
+            <div style={{
+              position: "absolute", top: "110%", left: 0,
+              background: "#fff", border: "2px solid #1c1f3a",
+              boxShadow: "4px 4px 0 #1c1f3a", zIndex: 50,
+              minWidth: 200, padding: "8px 0"
+            }}>
+              {["All", "Science", "Mathematics", "Social Studies", "English"].map(subj => (
+                <label key={subj} style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "6px 16px", cursor: "pointer",
+                  fontFamily: "monospace", fontSize: 12,
+                  fontWeight: subj === "All" ? "bold" : "normal",
+                  borderBottom: subj === "All" ? "1px solid rgba(28,31,58,0.15)" : "none"
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={checkedSubjects.includes(subj)}
+                    onChange={() => {
+                      if (subj === "All") {
+                        setCheckedSubjects(checkedSubjects.includes("All")
+                          ? []
+                          : ["All", "Science", "Mathematics", "Social Studies", "English"])
+                      } else {
+                        const next = checkedSubjects.includes(subj)
+                          ? checkedSubjects.filter(s => s !== subj && s !== "All")
+                          : [...checkedSubjects.filter(s => s !== "All"), subj]
+                        setCheckedSubjects(next)
+                      }
+                    }}
+                  />
+                  {subj}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ADDITION 2: Session type filter tabs */}
+        
+
         {/* Exam countdown banner */}
         {plan?.exam_countdown && (
-          <div className="border-2 border-[#4A6FA5] bg-[#4A6FA5]/5 px-5 py-3 flex items-center gap-3">
-            <Flame className="w-6 h-6 text-[#4A6FA5]" />
-            <p className="font-mono text-xs font-bold text-[#4A6FA5] uppercase tracking-wider">
-              EXAM IN {plan.days_remaining} DAYS — Revision mode active. Only revision and mock sessions scheduled.
-            </p>
-          </div>
-        )}
+  <div className="flex items-center gap-3.5 px-5 py-3.5 bg-[#FFFBF0] border-2 border-[#1C1F3A] shadow-[4px_4px_0px_#C47C2B] rounded-none">
+    <div className="p-1.5 bg-[#C47C2B]/10 border border-[#C47C2B] flex items-center justify-center flex-shrink-0">
+      <Flame className="w-5 h-5 text-[#C47C2B] animate-pulse" />
+    </div>
+    
+    <div className="flex-1 font-mono text-xs leading-relaxed text-[#1C1F3A]">
+      <span className="font-extrabold uppercase tracking-wider text-[#C47C2B] bg-[#C47C2B]/15 px-2 py-0.5 border border-[#C47C2B]/30 mr-2 inline-block">
+        EXAM IN {plan.days_remaining} DAYS
+      </span>
+      <span className="font-bold text-[#1C1F3A]">
+        — Revision mode active. Only revision and mock sessions scheduled.
+      </span>
+    </div>
+  </div>
+)}
 
         {/* Burnout warning */}
         {burnoutWarning && (
@@ -419,23 +894,46 @@ export default function PlannerPage() {
           </div>
         )}
 
+        {/* Completion notification */}
+        {completionNotification && (
+          <div className="border-2 border-[#2a7d4f] bg-[#eef9f1] px-5 py-3 flex items-center gap-3 animate-slide-up">
+            <CheckCircle2 className="w-6 h-6 text-[#2a7d4f]" />
+            <p className="font-mono text-xs font-bold text-[#2a7d4f] uppercase tracking-wider">
+              {completionNotification}
+            </p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-start justify-between animate-slide-right">
           <div>
-            <p className="section-label pink mb-1.5 animate-[slide-right_0.5s_ease-out_0.1s_both] flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5" /> Schedule
-            </p>
+            
             <h1 className="font-serif font-black text-[2.2rem] text-[#1c1f3a] leading-none animate-[slide-right_0.5s_ease-out_0.2s_both]">Study Planner</h1>
           </div>
-          <div className="flex gap-2">
-            <button onClick={handleStudyNow}
-              className="brut-btn brut-btn-pink px-4 py-2 text-xs flex items-center gap-1.5 font-bold">
-              <Play className="w-3 h-3 fill-current" /> Study Now
-            </button>
-            <button onClick={handleRegenerate} disabled={regenerating}
-              className="brut-btn brut-btn-outline px-4 py-2 text-xs flex items-center gap-1.5 font-bold">
-              <RefreshCw className={cn("w-3.5 h-3.5", regenerating && "animate-spin")} /> {regenerating ? "Rebuilding…" : "Regenerate"}
-            </button>
+          <div className="flex gap-2 flex-wrap justify-end">
+            {missedSessions.length > 0 && (
+              <button onClick={handleRescheduleMissed}
+                className="brut-btn brut-btn-outline px-4 py-2 text-xs flex items-center gap-1.5 font-bold">
+                <RefreshCw className="w-3.5 h-3.5" /> Reschedule Missed
+              </button>
+            )}
+            <button 
+  onClick={() => {
+    const defaultSubject = selectedSubject === "all" ? "science" : selectedSubject
+    setPlanSubject(defaultSubject)
+    setPlanChapter(CHAPTERS_BY_SUBJECT[defaultSubject]?.[0] ?? "")
+    setPlanDays(3)
+    setPreferredSlots(["evening"])
+    setPlanError("")
+    setPlanModalOpen(true)
+  }}
+  className="inline-flex items-center gap-2 px-4 py-2 bg-[#F8FAFF] hover:bg-white text-[#1C1F3A] hover:text-[#4A6FA5] font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] hover:shadow-[4px_4px_0px_#4A6FA5] hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all duration-150 rounded-none cursor-pointer"
+>
+  <Calendar className="w-4 h-4 text-[#4A6FA5]" />
+  <span>Plan a Chapter</span>
+</button>
+            
+            
           </div>
         </div>
 
@@ -462,19 +960,25 @@ export default function PlannerPage() {
         </div>
 
         {/* Filter tabs */}
-        <div className="flex gap-1.5">
-          {["all","study","practice","revision","mock","break"].map(f => (
-            <button key={f} onClick={() => setFilter(f)}
-              className={cn(
-                "px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider font-mono border transition-colors",
-                filter === f
-                  ? "bg-[#4A6FA5] text-white border-[#4A6FA5]"
-                  : "border-[rgba(28,31,58,0.10)] text-[rgba(28,31,58,0.40)] hover:border-[rgba(28,31,58,0.30)] hover:text-[#1c1f3a]"
-              )}>
-              {f}
-            </button>
-          ))}
-        </div>
+        <div className="flex flex-wrap items-center gap-2">
+  {["all", "study", "practice", "revision", "mock", "break"].map((f) => {
+    const isActive = filter === f
+    return (
+      <button
+        key={f}
+        onClick={() => setFilter(f)}
+        className={cn(
+          "px-3.5 py-1.5 font-mono text-xs font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer rounded-none border-2",
+          isActive
+            ? "bg-[#4A6FA5] text-white border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] -translate-y-0.5"
+            : "bg-[#F8FAFF] text-[#1C1F3A]/60 border-[#1C1F3A]/20 hover:border-[#1C1F3A] hover:text-[#1C1F3A] hover:bg-white"
+        )}
+      >
+        {f}
+      </button>
+    )
+  })}
+</div>
 
         {/* Burnout Check Warning Cards */}
         {burnoutWarnings
@@ -509,21 +1013,31 @@ export default function PlannerPage() {
           })}
 
         {/* Week navigation */}
-        <div className="flex items-center justify-between">
-          <button onClick={() => setWeekStart(d => addDays(d, -7))}
-            className="font-mono text-xs text-[rgba(28,31,58,0.40)] hover:text-[#1c1f3a] uppercase tracking-wider">
-            ← Prev Week
-          </button>
-          <p className="font-mono text-xs text-[rgba(28,31,58,0.40)] uppercase tracking-wider">
-            {weekStart.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-            &nbsp;–&nbsp;
-            {addDays(weekStart, 6).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-          </p>
-          <button onClick={() => setWeekStart(d => addDays(d, 7))}
-            className="font-mono text-xs text-[rgba(28,31,58,0.40)] hover:text-[#1c1f3a] uppercase tracking-wider">
-            Next Week →
-          </button>
-        </div>
+        <div className="flex items-center justify-between p-2.5 bg-[#F8FAFF] border-2 border-[#1C1F3A] shadow-[3px_3px_0px_#1C1F3A] rounded-none">
+  {/* Previous Week Button */}
+  <button 
+    onClick={() => setWeekStart(d => addDays(d, -7))}
+    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#1C1F3A] text-[#1C1F3A] hover:text-white font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] active:translate-y-0.5 active:shadow-none transition-all duration-150 rounded-none cursor-pointer"
+  >
+    ← Prev Week
+  </button>
+
+  {/* Date Range Badge */}
+  <div className="px-3.5 py-1.5 bg-white border-2 border-[#1C1F3A] font-mono text-xs font-bold text-[#1C1F3A] uppercase tracking-wider shadow-[2px_2px_0px_#4A6FA5]">
+    <span className="text-[#4A6FA5]">📅</span>{" "}
+    {weekStart.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+    <span className="text-[#4A6FA5] mx-1.5">–</span>
+    {addDays(weekStart, 6).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+  </div>
+
+  {/* Next Week Button */}
+  <button 
+    onClick={() => setWeekStart(d => addDays(d, 7))}
+    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#1C1F3A] text-[#1C1F3A] hover:text-white font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] active:translate-y-0.5 active:shadow-none transition-all duration-150 rounded-none cursor-pointer"
+  >
+    Next Week →
+  </button>
+</div>
 
         {/* Calendar grid */}
         {loading ? (
@@ -532,6 +1046,28 @@ export default function PlannerPage() {
           <div className="urgent-memo px-4 py-3 pl-10">
             <p className="font-serif text-lg font-black text-[#c0392b]">{error}</p>
             <button onClick={fetchPlan} className="font-mono text-[10px] text-[#1c1f3a] font-bold underline mt-1">Retry</button>
+          </div>
+        ) : (plan?.sessions ?? []).length === 0 ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="index-card w-full max-w-md text-center p-10">
+              <Calendar className="w-16 h-16 mx-auto mb-4 text-[rgba(28,31,58,0.3)]" />
+              <p className="font-serif font-black text-2xl text-[#1c1f3a] mb-2">No study sessions planned yet</p>
+              <p className="font-mono text-xs text-[rgba(28,31,58,0.6)] mb-6 uppercase tracking-wider">Click "Plan a Chapter" to create your first session.</p>
+              <button
+                onClick={() => {
+                  const defaultSubject = selectedSubject === "all" ? "science" : selectedSubject
+                  setPlanSubject(defaultSubject)
+                  setPlanChapter(CHAPTERS_BY_SUBJECT[defaultSubject]?.[0] ?? "")
+                  setPlanDays(3)
+                  setPreferredSlots(["evening"])
+                  setPlanError("")
+                  setPlanModalOpen(true)
+                }}
+                className="brut-btn brut-btn-pink px-6 py-3 text-sm font-bold inline-flex items-center gap-2"
+              >
+                <Calendar className="w-4 h-4" /> Plan a Chapter
+              </button>
+            </div>
           </div>
         ) : (
           <div className="desk-planner" style={{ animationDelay: "0.4s" }}>
@@ -573,7 +1109,7 @@ export default function PlannerPage() {
                       <p className="font-mono text-[10px] text-[rgba(28,31,58,0.30)] text-center mt-6 italic font-bold">Free day</p>
                     ) : (
                       daySessions.map(s => (
-                        <SessionChip key={s.id} s={s} onClick={() => setSelected(s)} />
+                        <SessionChip key={s.id} s={s} onClick={() => setSelected(s)} onComplete={handleMarkComplete} onDelete={handleDelete} confirmDeleteId={confirmDeleteId} setConfirmDeleteId={setConfirmDeleteId} />
                       ))
                     )}
                   </div>
@@ -604,6 +1140,134 @@ export default function PlannerPage() {
       {/* Study Now modal */}
       {studyNow && (
         <StudyNowModal data={studyNow} onClose={() => setStudyNow(null)} />
+      )}
+
+      {/* Plan a Chapter modal */}
+      {planModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setPlanModalOpen(false)}>
+          <div className="w-[500px] max-w-full index-card animate-slide-up" onClick={(e) => e.stopPropagation()}>
+            <div className="absolute -top-10 left-4 bg-[#fdfcf9] border-t border-l border-r border-[#1c1f3a] px-6 py-2 rounded-t-lg z-[-1]">
+              <span className="font-mono text-[10px] font-black uppercase tracking-widest text-[#1c1f3a]">Plan Chapter</span>
+            </div>
+
+            <div className="p-8 space-y-5">
+              <div className="border-b-2 border-dashed border-[#1c1f3a] pb-4 relative">
+                <button onClick={() => setPlanModalOpen(false)} className="absolute top-0 right-0 text-[#1c1f3a] font-mono text-xl font-black hover:text-[#c0392b]">&times;</button>
+                <p className="font-serif font-black text-2xl text-[#1c1f3a] leading-tight">Generate Study Plan</p>
+              </div>
+
+              {planError && (
+                <div className="border border-[#c0392b] bg-[#fff2f2] px-3 py-2">
+                  <p className="font-mono text-xs text-[#c0392b] font-bold">{planError}</p>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#1c1f3a] mb-2 block">Subject</label>
+                  <select
+                    value={planSubject}
+                    onChange={(e) => setPlanSubject(e.target.value)}
+                    className="w-full border-2 border-[#1c1f3a] px-3 py-2 font-mono text-xs bg-[#fdfcf9] text-[#1c1f3a] focus:outline-none focus:bg-[rgba(28,31,58,0.05)]"
+                  >
+                    <option value="science">Science</option>
+                    <option value="maths">Mathematics</option>
+                    <option value="social">Social Studies</option>
+                    <option value="english">English</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#1c1f3a] mb-2 block">Chapter</label>
+                  <select
+                    value={planChapter}
+                    onChange={(e) => setPlanChapter(e.target.value)}
+                    className="w-full border-2 border-[#1c1f3a] px-3 py-2 font-mono text-xs bg-[#fdfcf9] text-[#1c1f3a] focus:outline-none focus:bg-[rgba(28,31,58,0.05)]"
+                  >
+                    {currentChapterList.map((ch) => (
+                      <option key={ch} value={ch}>{ch}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#1c1f3a] mb-2 block">Type of Plan</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {["study", "practice", "revision", "mock"].map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setPlanSessionType(type)}
+                        className={cn(
+                          "px-3 py-2 text-[10px] font-bold uppercase tracking-wider font-mono border-2 transition-colors",
+                          planSessionType === type
+                            ? "bg-[#1c1f3a] text-white border-[#1c1f3a]"
+                            : "border-[rgba(28,31,58,0.3)] text-[#1c1f3a] hover:border-[#1c1f3a]"
+                        )}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#1c1f3a] mb-2 block">Time Preference</label>
+                  <div className="space-y-2">
+                    {TIME_PREFS.map((pref) => (
+                      <label key={pref.id} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={preferredSlots.includes(pref.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setPreferredSlots((prev) => [...prev, pref.id])
+                            } else {
+                              setPreferredSlots((prev) => prev.filter((slot) => slot !== pref.id))
+                            }
+                          }}
+                          className="w-4 h-4 border-2 border-[#1c1f3a]"
+                        />
+                        <span className="font-mono text-xs text-[#1c1f3a] font-bold">{pref.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#1c1f3a]">Days</label>
+                    <span className="font-mono text-sm font-black text-[#1c1f3a]">{planDays}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="7"
+                    value={planDays}
+                    onChange={(e) => setPlanDays(parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-6 border-t-2 border-dashed border-[#1c1f3a] flex gap-3">
+                <button
+                  onClick={() => setPlanModalOpen(false)}
+                  className="flex-1 font-mono font-black text-xs text-[#1c1f3a] border-2 border-[#1c1f3a] px-4 py-3 uppercase tracking-widest hover:bg-[rgba(28,31,58,0.05)] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGeneratePlan}
+                  disabled={planning}
+                  className="flex-1 font-mono font-black text-xs text-[#fdfcf9] bg-[#1c1f3a] border-2 border-[#1c1f3a] px-4 py-3 uppercase tracking-widest hover:bg-[#c0392b] hover:border-[#c0392b] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {planning ? "Generating..." : "Generate Plan"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </AppShell>
   )

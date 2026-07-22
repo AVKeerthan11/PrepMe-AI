@@ -357,7 +357,7 @@ def retrieve(
 
 
 # ── LLM Generation ─────────────────────────────────────────────────────────────
-def groq_chat(messages: List[Dict], model: str = None, temperature: float = 0.4) -> str:
+def groq_chat(messages: List[Dict], model: str = None, temperature: float = 0.4, max_tokens: int = 4000) -> str:
     """Call Groq API"""
     if not settings.groq_api_key:
         raise ValueError("GROQ_API_KEY not set")
@@ -369,7 +369,7 @@ def groq_chat(messages: List[Dict], model: str = None, temperature: float = 0.4)
         model=model,
         messages=messages,
         temperature=temperature,
-        max_tokens=1200,
+        max_tokens=max_tokens,
     )
     return resp.choices[0].message.content.strip()
 

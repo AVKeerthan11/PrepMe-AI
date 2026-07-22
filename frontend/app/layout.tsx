@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import Link from "next/link"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { AuthProvider } from "@/lib/auth"
@@ -15,6 +16,15 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={inter.variable}>
+      <head>
+        <link rel="prefetch" href="/home" />
+        <link rel="prefetch" href="/tutor" />
+        <link rel="prefetch" href="/quiz" />
+        <link rel="prefetch" href="/planner" />
+        <link rel="prefetch" href="/analytics" />
+        <link rel="prefetch" href="/exam" />
+        <link rel="prefetch" href="/profile" />
+      </head>
       <body className="min-h-screen font-sans antialiased" style={{ backgroundColor: '#E8E3D9' }}>
         <SubjectThemeProvider>
           <SubjectBackground />

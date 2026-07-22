@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { motion } from "framer-motion"
 import { usePathname, useRouter } from "next/navigation"
@@ -38,6 +38,10 @@ const BriefcaseNavItem = ({
   const active = pathname === href
   const [phase, setPhase] = useState<"idle"|"shake"|"open">("idle")
   const [hovered, setHovered] = useState(false)
+
+  useEffect(() => {
+    router.prefetch(href)
+  }, [href, router])
 
   const handleClick = () => {
     if (phase !== "idle") return
@@ -203,10 +207,45 @@ const BriefcaseNavItem = ({
 export function TopNav() {
   const router = useRouter()
   const { profile, logout } = useAuth()
+  const [profileData, setProfileData] = useState<{avatar?: string, name?: string, email?: string} | null>(null)
 
-  const handleLogout = () => { logout(); router.push("/login") }
+  useEffect(() => {
+    router.prefetch("/home")
+    router.prefetch("/tutor")
+    router.prefetch("/quiz")
+    router.prefetch("/planner")
+    router.prefetch("/analytics")
+    router.prefetch("/exam")
+    router.prefetch("/profile")
+  }, [router])
 
-  const daysLeft = profile?.days_to_exam ?? 30
+  // Update profileData when profile changes or on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const userStr = localStorage.getItem("prepme_user")
+      const user = userStr ? JSON.parse(userStr) : null
+      setProfileData(user)
+    }
+  }, [profile])
+
+  const handleLogout = () => { logout(); router.push("/") }
+
+  // Calculate days to exam dynamically
+  const calculateDaysToExam = () => {
+    if (!profile?.exam_date) return 30
+    const today = new Date()
+    const examDate = new Date(profile.exam_date)
+    const diffTime = examDate.getTime() - today.getTime()
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return Math.max(diffDays, 0)
+  }
+
+  const daysLeft = calculateDaysToExam()
+
+  // Use profile name (from backend) which updates when user changes it
+  const avatarSrc = profileData?.avatar ? `/avatars/${profileData.avatar}.png` : null
+  const userName = profile?.name || profileData?.name || profileData?.email || "Profile"
+  const displayName = userName.length > 15 ? userName.substring(0, 15) + "..." : userName
 
   return (
     <>
@@ -263,12 +302,21 @@ export function TopNav() {
               <span className="font-mono text-[10px] font-black uppercase tracking-widest text-[rgba(28,31,58,0.55)]">Exam</span>
               <span className="font-mono text-sm font-black text-[#4A6FA5]">{daysLeft}d</span>
             </div>
-            <Link href="/profile" className="flex items-center justify-center px-8 border-r border-[rgba(28,31,58,0.12)] font-mono text-[11px] font-black uppercase tracking-widest hover:bg-[rgba(28,31,58,0.05)] transition-all text-[rgba(28,31,58,0.55)] hover:text-[#1c1f3a] group relative overflow-hidden">
+            <Link href="/profile" className="flex items-center gap-3 px-6 py-3 border-r border-[rgba(28,31,58,0.12)] font-mono text-[11px] font-black uppercase tracking-widest hover:bg-[rgba(28,31,58,0.05)] transition-all text-[rgba(28,31,58,0.55)] hover:text-[#1c1f3a] group relative overflow-hidden">
               <div className="absolute inset-x-0 bottom-0 h-[2px] bg-[#1c1f3a] translate-y-full group-hover:translate-y-0 transition-transform duration-200 ease-out" />
-              <span className="flex items-center group-hover:-translate-y-0.5 transition-transform duration-200">
-                <User className="w-3.5 h-3.5 mr-2" />
-                Profile
-              </span>
+              <div className="flex items-center gap-2 group-hover:-translate-y-0.5 transition-transform duration-200">
+                {avatarSrc ? (
+                  <img 
+                    src={avatarSrc} 
+                    style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover" }} 
+                    alt="avatar" 
+                    className="border-2 border-[rgba(28,31,58,0.2)]"
+                  />
+                ) : (
+                  <User className="w-4 h-4" />
+                )}
+                <span>{displayName}</span>
+              </div>
             </Link>
             <button onClick={handleLogout}
               className="flex items-center justify-center px-8 bg-[#1c1f3a] font-mono text-[11px] font-black uppercase tracking-widest text-white hover:bg-[#3d5f8f] transition-colors"

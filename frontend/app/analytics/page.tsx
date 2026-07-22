@@ -67,7 +67,16 @@ export default function AnalyticsPage() {
   const [prediction, setPrediction] = useState<ExamPrediction | null>(null)
   const [predictionLoading, setPredictionLoading] = useState(true)
   const [predictionError, setPredictionError] = useState(false)
-  const subject = profile?.subject ?? "science"
+  
+  // Read subject directly from profile, not from local state
+  const selectedSubject = profile?.subject ?? "science"
+
+  const toApiSubject = (s: string) => {
+    if (s === "Social Studies" || s === "social") return "social"
+    if (s === "Mathematics" || s === "mathematics" || s === "maths") return "mathematics"
+    if (s === "English" || s === "english") return "english"
+    return "science"
+  }
 
   useEffect(() => {
     setData(null)
@@ -75,7 +84,7 @@ export default function AnalyticsPage() {
     setPredictionLoading(true)
     setPredictionError(false)
 
-    authFetch(`/api/analytics/?subject=${subject}`)
+    authFetch(`/api/analytics/?subject=${toApiSubject(selectedSubject)}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => d && setData(d))
 
@@ -97,7 +106,7 @@ export default function AnalyticsPage() {
         setPredictionError(true)
         setPredictionLoading(false)
       })
-  }, [authFetch, subject, subjectVersion])
+  }, [authFetch, selectedSubject, subjectVersion])
 
   const stats = data ? [
     { label: "Readiness",     value: `${data.readiness.toFixed(0)}`, unit: "/100", stripe: "bg-[#ec4899] border-2 border-[#1c1f3a] text-[#1c1f3a]" },
@@ -110,7 +119,7 @@ export default function AnalyticsPage() {
     <AppShell>
       <div className="space-y-6">
         <div>
-          <p className="section-label pink mb-2">Insights</p>
+          
           <h1 className="font-serif font-black text-3xl text-[#1c1f3a]">Analytics</h1>
         </div>
 
