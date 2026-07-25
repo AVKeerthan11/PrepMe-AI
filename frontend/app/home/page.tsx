@@ -20,6 +20,7 @@ import {
   getEnrolledSubjects,
   getProgressForSubject,
   SUBJECT_PROGRESS_META,
+  displayNameToId,
 } from "@/lib/subjects"
 
 interface Analytics {
@@ -197,6 +198,7 @@ export default function Dashboard() {
   const router = useRouter()
   const { profile, authFetch, refreshProfile, subjectVersion } = useAuth()
   const [data, setData] = useState<Analytics | null>(null)
+  const [masterySummary, setMasterySummary] = useState<Record<string, { percent: number; covered: number; total: number }>>({})
   const subject = profile?.subject ?? "science"
   const fullText = `Welcome back,\n${profile?.name ?? "Student"}`
   const [displayed, setDisplayed] = useState("")
@@ -248,6 +250,9 @@ export default function Dashboard() {
       const subjectParam = profile?.subject ?? "science"
       const res = await authFetch(`/api/analytics/?subject=${subjectParam}`)
       if (res.ok) setData(await res.json())
+      
+      const sumRes = await authFetch(`/api/profile/mastery-summary`)
+      if (sumRes.ok) setMasterySummary(await sumRes.json())
     } catch {
       /* backend offline */
     }
@@ -494,20 +499,24 @@ export default function Dashboard() {
             YOUR PROGRESS
           </h2>
           <div className="space-y-4">
-            {enrolledSubjects.map((sub) => {
+            {["Science", "Mathematics", "Social Studies", "English"].map((sub) => {
               const meta = SUBJECT_PROGRESS_META[sub] ?? {
                 label: sub.toUpperCase(),
                 chapters: 10,
                 color: "#4A6FA5",
               }
-              const { percent, covered, total } = getProgressForSubject(sub, profile)
+              const subId = displayNameToId(sub) ?? sub.toLowerCase()
+              const summaryData = masterySummary[subId]
+              const { percent, covered, total } = summaryData 
+                ? summaryData 
+                : getProgressForSubject(sub, profile)
               return (
                 <SubjectProgressBar
                   key={sub}
                   label={meta.label}
-                  percent={percent}
-                  covered={covered}
-                  total={total}
+                  percent={percent || 0}
+                  covered={covered || 0}
+                  total={total || meta.chapters}
                   color={meta.color}
                 />
               )

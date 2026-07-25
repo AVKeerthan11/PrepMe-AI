@@ -1052,7 +1052,7 @@ export default function PlannerPage() {
             <div className="index-card w-full max-w-md text-center p-10">
               <Calendar className="w-16 h-16 mx-auto mb-4 text-[rgba(28,31,58,0.3)]" />
               <p className="font-serif font-black text-2xl text-[#1c1f3a] mb-2">No study sessions planned yet</p>
-              <p className="font-mono text-xs text-[rgba(28,31,58,0.6)] mb-6 uppercase tracking-wider">Click "Plan a Chapter" to create your first session.</p>
+              <p className="font-mono text-xs text-[rgba(28,31,58,0.6)] mb-6 uppercase tracking-wider">Click &quot;Plan a Chapter&quot; to create your first session.</p>
               <button
                 onClick={() => {
                   const defaultSubject = selectedSubject === "all" ? "science" : selectedSubject

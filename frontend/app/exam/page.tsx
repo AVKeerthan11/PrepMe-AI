@@ -27,6 +27,7 @@ type Question = {
   explanation: string
   bloom_level: string
   source_pages: string
+  prompt?: string
 }
 
 type Section = {
@@ -319,6 +320,15 @@ export default function ExamPage() {
   const percentage = Math.round((totalScore / maxPossible) * 100)
   const gradeObj = CBSE_GRADES.find((g) => percentage >= g.min && percentage <= g.max)
 
+  // Submit exam results to the backend to update mastery and trigger plan regeneration
+  authFetch("/api/exam/submit", {
+    method: "POST",
+    body: JSON.stringify({
+      subject: paper.subject,
+      percentage: percentage
+    })
+  }).catch((err: any) => console.error("Failed to submit exam:", err))
+
   setResults({
     score: totalScore,
     percentage,
@@ -509,7 +519,7 @@ export default function ExamPage() {
             <p className="text-sm">{q.question_text || q.prompt}</p>
           </div>
           <div className="ml-6 mb-2 text-xs text-gray-500">
-            Format: Sender's address → Date → Recipient's address → Subject → Salutation → Body → Closing
+            Format: Sender&apos;s address → Date → Recipient&apos;s address → Subject → Salutation → Body → Closing
           </div>
           <AnswerTextarea qKey={qKey} ans={ans} rows={12} placeholder="Write your letter here (100–120 words)..." onChange={handleAnswerChange} />
           <ReviewCheckbox qKey={qKey} ans={ans} toggleReview={toggleReview} />

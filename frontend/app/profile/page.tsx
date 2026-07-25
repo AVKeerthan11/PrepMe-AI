@@ -50,6 +50,9 @@ export default function ProfilePage() {
     })
     await refreshProfile()
     
+    // Trigger planner regeneration so schedule reflects any exam_date or subject change
+    authFetch("/api/planner/regenerate", { method: "POST" }).catch(() => {})
+    
     // Update localStorage to reflect new name
     const userStr = localStorage.getItem("prepme_user")
     if (userStr) {

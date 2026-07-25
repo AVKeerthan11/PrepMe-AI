@@ -8,7 +8,7 @@ from typing import List, Optional, Set, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func, or_
+from sqlalchemy import select, delete, func, or_, Integer
 
 from db.database import get_db
 from db.models import User, StudySession, MasteryScore, QuizAttempt, DoubtSession
@@ -381,62 +381,116 @@ async def _get_quiz_attempt_counts(db: AsyncSession, user_id) -> Dict[str, int]:
     return {row[0]: row[1] for row in result.fetchall()}
 
 
+async def _get_quiz_accuracy_per_topic(db: AsyncSession, user_id) -> Dict[str, float]:
+    """Return {topic: accuracy} where accuracy = correct/total for each topic attempted.
+    Returns 0.5 (neutral) for topics with no attempts."""
+    result = await db.execute(
+        select(QuizAttempt.topic, func.count(QuizAttempt.id), func.sum(
+            # Cast is_correct bool to int: 1 for True, 0 for False
+            QuizAttempt.is_correct.cast(Integer)
+        ))
+        .where(QuizAttempt.user_id == user_id)
+        .group_by(QuizAttempt.topic)
+    )
+    accuracy_map: Dict[str, float] = {}
+    for topic, total, correct in result.fetchall():
+        if total and total > 0:
+            accuracy_map[topic] = round((correct or 0) / total, 3)
+    return accuracy_map
+
+
 async def _build_and_save_sessions(
     db: AsyncSession, user: User, scores: list, subject: Optional[str] = None
 ) -> List[StudySession]:
-    """Distribute sessions across all 7 days starting from today, never skip a day."""
+    """
+    Dynamically distribute study sessions across available days.
+
+    Rules:
+    - Available days = [today, exam_date) — exam day itself is NEVER scheduled.
+    - Topics are sorted by composite priority: mastery gap × exam weight × urgency × quiz weakness.
+    - If topics > available days: pack multiple topics per day (up to max_per_day cap).
+    - If topics < available days: fill spare days with revision / weak-topic review / mock test / recap.
+    - Falls back to weight-only priority if no mastery / quiz data exists.
+    """
     today = datetime.date.today()
     exam_date = _exam_date(user)
-    days = _days_left(user)
-    exam_countdown = days <= 7
+
+    # Build list of schedulable dates — strictly BEFORE exam day
+    available_days: List[datetime.date] = []
+    cursor = today
+    while cursor < exam_date:          # exam_date itself is excluded
+        available_days.append(cursor)
+        cursor += datetime.timedelta(days=1)
+
+    if not available_days:
+        return []
+
+    total_days = len(available_days)
+    days = total_days  # used for urgency calculation
+
     weightage = _weightage_for_subject(subject) if subject is not None else _weightage_for(user)
     max_per_day = _max_sessions_per_day(user)
     max_minutes = _max_minutes_per_day(user)
 
+    # ── Ensure mastery records exist ───────────────────────────────────────────
     scores = _filter_scores_for_subject(scores, user, subject)
     if not scores:
         scores = await _ensure_mastery_for_subject(db, user, subject)
 
-    attempt_counts = await _get_quiz_attempt_counts(db, user.id)
+    # ── Fetch analytics data (quiz accuracy + attempt counts) ──────────────────
+    attempt_counts: Dict[str, int] = await _get_quiz_attempt_counts(db, user.id)
+    quiz_accuracy: Dict[str, float] = await _get_quiz_accuracy_per_topic(db, user.id)
+
+    # ── Build priority-sorted topic list ───────────────────────────────────────
+    # Composite priority = (1 - mastery) × weight × urgency × quiz_weakness_factor
+    # quiz_weakness_factor: topics with low quiz accuracy get boosted priority.
+    # If no quiz data exists, factor defaults to 1.0 (neutral — no bias).
+    urgency = 1.0 + 1.0 / max(days, 1)
 
     sorted_topics: List[tuple] = []
     for s in scores:
         w = weightage.get(s.topic, 0.08)
-        p = _priority(s.score, w, days)
+        mastery = s.score
         attempts = attempt_counts.get(s.topic, 0)
-        stype = _session_type(s.score, attempts)
-        sorted_topics.append((s.topic, s.score, p, stype))
-    sorted_topics.sort(key=lambda x: x[2], reverse=True)
+        acc = quiz_accuracy.get(s.topic, None)    # None = no quiz data
+
+        # quiz_factor: if accuracy data exists use (1.5 - accuracy) so weak topics
+        # get up to 1.5× boost; if no data use 1.0 (neutral)
+        quiz_factor = (1.5 - acc) if acc is not None else 1.0
+
+        priority = round((1.0 - mastery) * w * urgency * quiz_factor, 4)
+        stype = _session_type(mastery, attempts)
+        sorted_topics.append((s.topic, mastery, priority, stype))
+
+    # Primary sort: highest priority first.
+    # Secondary sort: lowest mastery first (tie-break toward weakest topics).
+    sorted_topics.sort(key=lambda x: (x[2], -x[1]), reverse=True)
 
     if not sorted_topics:
         return []
 
     sessions: List[StudySession] = []
     local_scheduled: Dict[datetime.date, Set[str]] = {}
-    topic_index = 0
-    day = today
 
-    # Distribute: fill Mon→Sun in order, never skip a day, respect per-day caps
-    while day <= exam_date and topic_index < len(sorted_topics):
+    # ── Phase 1: schedule study topics across days ─────────────────────────────
+    topic_index = 0
+    for day in available_days:
+        if topic_index >= len(sorted_topics):
+            break
+
         day_minutes = 0
         day_count = 0
 
         while topic_index < len(sorted_topics):
-            # Hard stop: would exceed soft cap minutes
+            # Enforce per-day minute and session caps
             if day_minutes + SESSION_MINUTES > max_minutes:
                 break
-            # Hard stop: would exceed session count cap
             if day_count >= max_per_day:
-                # Allow one extra session only if remaining topics need it
-                # and we haven't hit the minute cap yet
-                if day_count >= max_per_day + 1:
-                    break
-                if day_minutes + SESSION_MINUTES > max_minutes:
-                    break
-                # one extra allowed — fall through
+                break
 
             topic, mastery, priority, stype = sorted_topics[topic_index]
 
+            # Skip if already scheduled on this day (DB or local buffer)
             if await _session_exists_on_date(db, user, topic, day, local_scheduled):
                 topic_index += 1
                 continue
@@ -445,7 +499,7 @@ async def _build_and_save_sessions(
             sess = StudySession(
                 id=uuid.uuid4(),
                 user_id=user.id,
-                subject=_normalize_subject(user.subject),
+                subject=_normalize_subject(subject if subject is not None else user.subject),
                 chapter=topic,
                 date=day,
                 hour_start=18,
@@ -464,7 +518,80 @@ async def _build_and_save_sessions(
             day_count += 1
             day_minutes += SESSION_MINUTES
 
-        day += datetime.timedelta(days=1)
+    # ── Phase 2: fill spare days when topics < available days ──────────────────
+    # Identify days that have no sessions assigned yet
+    days_used: Set[datetime.date] = {s.date for s in sessions}
+    spare_days = [d for d in available_days if d not in days_used]
+
+    if spare_days and sorted_topics:
+        # Collect weak topics (mastery < 0.5) for revision filler
+        weak_topics = [(t, m, p, st) for t, m, p, st in sorted_topics if m < 0.5]
+        # If fewer weak topics than spare days, cycle through all topics
+        filler_pool = weak_topics if weak_topics else sorted_topics
+
+        # Determine if a mock test day should be inserted:
+        # Insert one mock day if there are 7+ available days and exam date is far enough
+        mock_inserted = False
+        mock_threshold_day = exam_date - datetime.timedelta(days=3)
+
+        for idx, day in enumerate(spare_days):
+            # Reserve the last spare day before exam (within 3 days) for full revision
+            days_to_exam = (exam_date - day).days
+
+            if days_to_exam <= 3:
+                # Full revision day
+                filler_topic = "Full Revision"
+                filler_stype = "revision"
+                filler_goals = normalize_goals([
+                    {"text": "Review all chapter summaries", "done": False},
+                    {"text": "Redo your weakest quiz topics", "done": False},
+                    {"text": "Go through your Mistake Journal", "done": False},
+                ])
+                filler_priority = 0.9
+                filler_mastery = 0.0
+            elif not mock_inserted and total_days >= 5 and day <= mock_threshold_day:
+                # Insert one mock test day
+                filler_topic = "Full Mock Test"
+                filler_stype = "mock"
+                filler_goals = normalize_goals([
+                    {"text": "Attempt a timed full mock paper", "done": False},
+                    {"text": "Aim for 80%+ accuracy", "done": False},
+                    {"text": "Review every mistake immediately after", "done": False},
+                ])
+                filler_priority = 0.85
+                filler_mastery = 0.0
+                mock_inserted = True
+            else:
+                # Weak-topic revision / recap
+                filler_entry = filler_pool[idx % len(filler_pool)]
+                filler_topic_name, filler_m, _, _ = filler_entry
+                # Skip if already scheduled today
+                if await _session_exists_on_date(db, user, filler_topic_name, day, local_scheduled):
+                    continue
+                filler_topic = filler_topic_name
+                filler_stype = "revision"
+                filler_goals = normalize_goals(_micro_goals("revision", filler_topic_name))
+                filler_priority = round((1.0 - filler_m) * urgency, 4)
+                filler_mastery = filler_m
+
+            filler_sess = StudySession(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                subject=_normalize_subject(subject if subject is not None else user.subject),
+                chapter=filler_topic,
+                date=day,
+                hour_start=18,
+                topic=filler_topic,
+                planned_minutes=SESSION_MINUTES,
+                session_type=filler_stype,
+                status="pending",
+                priority_score=filler_priority,
+                mastery_at_schedule=filler_mastery,
+                micro_goals=json.dumps(filler_goals),
+            )
+            db.add(filler_sess)
+            sessions.append(filler_sess)
+            local_scheduled.setdefault(day, set()).add(filler_topic)
 
     await db.flush()
     return sessions
@@ -612,6 +739,12 @@ async def generate_session(
 
     while len(sessions) < target_days:
         candidate_date = await _next_available_schedule_date(db, user.id, candidate_date)
+
+        if user.exam_date and candidate_date >= user.exam_date:
+            if len(sessions) == 0:
+                raise HTTPException(status_code=400, detail="Your schedule is completely full before the exam. Cannot fit this chapter.")
+            else:
+                break
 
         existing_same_day = await db.execute(
             select(StudySession.id).where(
@@ -926,13 +1059,14 @@ async def study_now(
 
 @router.post("/regenerate")
 async def regenerate_plan(
+    subject: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     today = datetime.date.today()
-    subject_topics = _subject_topics(user)
+    active_subject = _normalize_subject(subject or user.subject)
 
-    # Delete all future sessions for this student+subject (pending or otherwise), keep past
+    # Delete ALL future pending sessions for this user (full rebuild)
     result = await db.execute(
         select(StudySession).where(
             StudySession.user_id == user.id,
@@ -941,27 +1075,29 @@ async def regenerate_plan(
     )
     future_sessions = list(result.scalars().all())
     for s in future_sessions:
-        if s.topic in subject_topics:
-            await db.delete(s)
+        await db.delete(s)
     await db.flush()
 
-    scores = await _ensure_mastery_for_subject(db, user)
+    scores = await _ensure_mastery_for_subject(db, user, active_subject if active_subject != "all" else None)
     if not scores:
         return {
             "sessions": [],
             "exam_countdown": False,
             "days_remaining": _days_left(user),
-            "subject": user.subject,
+            "subject": active_subject,
         }
 
-    sessions = await _build_and_save_sessions(db, user, scores)
+    sessions = await _build_and_save_sessions(
+        db, user, scores,
+        subject=active_subject if active_subject != "all" else None
+    )
     days = _days_left(user)
 
     return {
         "sessions": [_serialize_session(s) for s in sessions],
         "exam_countdown": days <= 7,
         "days_remaining": days,
-        "subject": user.subject,
+        "subject": active_subject,
     }
 
 

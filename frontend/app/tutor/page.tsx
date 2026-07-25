@@ -577,44 +577,44 @@ export default function TutorPage() {
                     <>
                       <p className="text-[#999] text-xs font-mono mb-1.5 cursor-pointer hover:text-[#4A6FA5] transition-colors"
                         onClick={() => send("How do I factorise quadratic expressions?")}>
-                        "How do I factorise quadratic expressions?"
+                        &quot;How do I factorise quadratic expressions?&quot;
                       </p>
                       <p className="text-[#999] text-xs font-mono cursor-pointer hover:text-[#4A6FA5] transition-colors"
                         onClick={() => send("What is the area of a trapezium?")}>
-                        "What is the area of a trapezium?"
+                        &quot;What is the area of a trapezium?&quot;
                       </p>
                     </>
                   ) : normalizedSubject === "social" ? (
                     <>
                       <p className="text-[#999] text-xs font-mono mb-1.5 cursor-pointer hover:text-[#4A6FA5] transition-colors"
                         onClick={() => send("What was the impact of colonial rule on India?")}>
-                        "What was the impact of colonial rule on India?"
+                        &quot;What was the impact of colonial rule on India?&quot;
                       </p>
                       <p className="text-[#999] text-xs font-mono cursor-pointer hover:text-[#4A6FA5] transition-colors"
                         onClick={() => send("How does India's parliamentary system work?")}>
-                        "How does India's parliamentary system work?"
+                        &quot;How does India&apos;s parliamentary system work?&quot;
                       </p>
                     </>
                   ) : normalizedSubject === "english" ? (
                     <>
                       <p className="text-[#999] text-xs font-mono mb-1.5 cursor-pointer hover:text-[#4A6FA5] transition-colors"
                         onClick={() => send("What is the central theme of The Cherry Tree?")}>
-                        "What is the central theme of The Cherry Tree?"
+                        &quot;What is the central theme of The Cherry Tree?&quot;
                       </p>
                       <p className="text-[#999] text-xs font-mono cursor-pointer hover:text-[#4A6FA5] transition-colors"
                         onClick={() => send("Describe Verghese Kurien's contribution to India.")}>
-                        "Describe Verghese Kurien's contribution to India."
+                        &quot;Describe Verghese Kurien&apos;s contribution to India.&quot;
                       </p>
                     </>
                   ) : (
                     <>
                       <p className="text-[#999] text-xs font-mono mb-1.5 cursor-pointer hover:text-[#4A6FA5] transition-colors"
                         onClick={() => send("How do mirrors form images?")}>
-                        "How do mirrors form images?"
+                        &quot;How do mirrors form images?&quot;
                       </p>
                       <p className="text-[#999] text-xs font-mono cursor-pointer hover:text-[#4A6FA5] transition-colors"
                         onClick={() => send("What causes winds and storms?")}>
-                        "What causes winds and storms?"
+                        &quot;What causes winds and storms?&quot;
                       </p>
                     </>
                   )}

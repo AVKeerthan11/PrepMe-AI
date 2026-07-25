@@ -1,17 +1,17 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   saveSession,
   getUser,
   type PrepMeUser,
-} from "@/lib/auth.ts"
+} from "@/lib/auth"
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [error, setError] = useState("")
@@ -257,5 +257,19 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#E8E3D9] flex items-center justify-center">
+        <p className="font-mono text-[10px] text-[#AAA] uppercase tracking-widest">
+          Loading…
+        </p>
+      </div>
+    }>
+      <LoginPageInner />
+    </Suspense>
   )
 }
