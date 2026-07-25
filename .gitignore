@@ -1,50 +1,76 @@
-# ── Secrets (NEVER commit these) ─────────────────────────────────────────────
+# Environment files and secrets
 .env
-.env.local
-.env.production
-.env.development
+.env.*
+!.env.example
+!.env.local.example
+!.backend/.env.example
+!.frontend/.env.local.example
+*.env
 backend/.env
 frontend/.env.local
-*.env
 
-# ── Python ────────────────────────────────────────────────────────────────────
+# Python runtime and caches
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 venv/
 .venv/
 env/
-.env/
+ENV/
 *.egg-info/
 dist/
 build/
-.pytest_cache/
-
-
-
-# ── Node/JS ──────────────────────────────────────────────────────────────────
-node_modules/
-*.log
-
-# ── Python / local artifacts ───────────────────────────────────────────────
+htmlcov/
+.coverage
 *.db
 *.sqlite
 *.sqlite3
 
-# ── Frontend/Backend build output (if present) ─────────────────────────────
-frontend/.next/
-frontend/out/
-frontend/build/
-backend/__pycache__/
-backend/db/__pycache__/
+# Jupyter / notebooks
+.ipynb_checkpoints/
 
-# ── Local runtime uploads / generated assets (keep repo clean) ───────────
-assets/
+# Node / frontend build outputs
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+.vercel/
 
-# Local ngrok auth (never commit token)
+# Logs and temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.orig
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Local runtime artifacts
+uploads/
+tmp/
+temp/
+scratch_*.txt
+scratch_*.md
+ncert_*.pdf
+
+# IDE settings
+.vscode/
+.idea/
+
+# Local ngrok/auth helpers
 ngrok_auth_env.py
-
-
 
 

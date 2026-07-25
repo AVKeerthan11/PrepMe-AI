@@ -736,7 +736,7 @@ function FeedbackCard({ q, assessment, studentAnswer, xpEarned, confidence, onNe
 
           <div className="pt-6 border-t-2 border-dashed border-[rgba(28,31,58,0.15)]">
             <p className="font-mono text-[10px] text-[#c0392b] uppercase tracking-widest font-bold mb-4 flex items-center gap-2">
-              <span className="text-lg">✎</span> Teacher's Notes
+              <span className="text-lg">✎</span> Teacher&apos;s Notes
             </p>
             <p className="text-lg text-[#c0392b] red-pen leading-relaxed">{assessment.feedback_for_student}</p>
           </div>
@@ -821,7 +821,7 @@ function FeedbackCard({ q, assessment, studentAnswer, xpEarned, confidence, onNe
       <div className="exam-paper space-y-6">
         <div className="border-l-4 border-[#c0392b] pl-4">
           <p className="font-mono text-[10px] text-[#c0392b] uppercase tracking-widest font-bold mb-2 flex items-center gap-2">
-            <span className="text-lg">✎</span> Teacher's Feedback
+            <span className="text-lg">✎</span> Teacher&apos;s Feedback
           </p>
           <p className="text-lg text-[#c0392b] red-pen leading-relaxed">{assessment.feedback_for_student}</p>
         </div>
@@ -960,8 +960,8 @@ function ResultsScreen({ attempts, totalXP, topic, authFetch, onRetake }: {
             
             {insight && (
               <div className="border-2 border-[#1c1f3a] p-4 bg-[#1c1f3a] text-[#fdfcf9]">
-                <p className="text-[10px] uppercase tracking-widest font-bold mb-2 text-[rgba(253,252,249,0.6)]">Teacher's Remark</p>
-                <p className="text-sm italic">"{insight}"</p>
+                <p className="text-[10px] uppercase tracking-widest font-bold mb-2 text-[rgba(253,252,249,0.6)]">Teacher&apos;s Remark</p>
+                <p className="text-sm italic">&quot;{insight}&quot;</p>
               </div>
             )}
           </div>
@@ -1099,7 +1099,7 @@ function JournalScreen({ authFetch, onBack, onRetry }: {
                         {m.misconception && (
                           <div className="flex gap-4 mt-4 pt-4 border-t border-dashed border-[rgba(28,31,58,0.15)]">
                             <span className="w-24 text-[10px] uppercase tracking-widest text-[rgba(28,31,58,0.5)] font-bold pt-1">Note:</span>
-                            <span className="flex-1 text-[#1c1f3a] italic">"{m.misconception}"</span>
+                            <span className="flex-1 text-[#1c1f3a] italic">&quot;{m.misconception}&quot;</span>
                           </div>
                         )}
                       </div>
@@ -1447,6 +1447,8 @@ function QuizPageInner() {
           method: "POST",
           body: JSON.stringify({ subject: activeSubject, topic: currentTopic, score: finalScore }),
         })
+        // Trigger planner regeneration in the background so schedule reflects new mastery
+        authFetch("/api/planner/regenerate", { method: "POST" }).catch(() => {})
         setPhase("results")
         await refreshProfile()
       }
@@ -1477,6 +1479,8 @@ function QuizPageInner() {
         method: "POST",
         body: JSON.stringify({ subject, topic: config.topic, score: finalScore }),
       })
+      // Trigger planner regeneration in the background so schedule reflects new mastery
+      authFetch("/api/planner/regenerate", { method: "POST" }).catch(() => {})
       setPhase("results")
       await refreshProfile()
       return

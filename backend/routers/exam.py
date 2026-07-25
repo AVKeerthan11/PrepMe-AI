@@ -130,3 +130,80 @@ async def grade_question(
             improvement_suggestions="Provide more detailed answers with specific examples.",
             model_answer=request.correct_answer
         )
+
+
+class ExamSubmission(BaseModel):
+    subject: str
+    percentage: float
+
+
+@router.post("/submit")
+async def submit_exam(
+    request: ExamSubmission,
+    current_student: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Submit a full mock board exam. Updates mastery scores of all topics/chapters
+    for the given subject based on the exam score, and triggers planner regeneration.
+    """
+    from services.exam_service import get_chapters_for_subject
+    from db.crud import get_mastery_score_by_topic, upsert_mastery_score
+    from sqlalchemy import select
+    from db.models import StudySession
+    import datetime
+
+    subject_lower = request.subject.lower()
+    if subject_lower == "social studies":
+        subject_lower = "social"
+    elif subject_lower == "mathematics":
+        subject_lower = "maths"
+
+    chapters = get_chapters_for_subject(request.subject)
+    score_fraction = request.percentage / 100.0
+
+    # 1. Update mastery score for all topics of the subject
+    for topic in chapters:
+        existing = await get_mastery_score_by_topic(db, current_student.id, topic)
+        old_score = existing.score if existing else 0.5
+        old_sessions = existing.sessions_done if existing else 0
+
+        # Weighted update: 70% old, 30% new exam score
+        new_score = round((1.0 - 0.3) * old_score + 0.3 * score_fraction, 3)
+        new_score = max(0.1, min(1.0, new_score))
+
+        updated = await upsert_mastery_score(db, current_student.id, topic, new_score, old_sessions + 1)
+        if updated.last_tested is None:
+            updated.last_tested = datetime.date.today()
+            await db.flush()
+
+        # Reactive revision session if mastery falls below 0.6
+        if new_score < 0.6:
+            from routers.planner import ensure_revision_session
+            await ensure_revision_session(db, current_student, topic, new_score)
+
+    # 2. Trigger planner regeneration
+    today = datetime.date.today()
+
+    # Delete all future pending/scheduled sessions for this user
+    result = await db.execute(
+        select(StudySession).where(
+            StudySession.user_id == current_student.id,
+            StudySession.date >= today,
+        )
+    )
+    for s in result.scalars().all():
+        await db.delete(s)
+    await db.flush()
+
+    # Rebuild plan
+    from routers.planner import _build_and_save_sessions, _ensure_mastery_for_subject
+    scores = await _ensure_mastery_for_subject(db, current_student, subject_lower if subject_lower != "all" else None)
+    if scores:
+        await _build_and_save_sessions(
+            db, current_student, scores,
+            subject=subject_lower if subject_lower != "all" else None
+        )
+
+    await db.commit()
+    return {"ok": True, "message": "Exam submitted successfully. Mastery updated and study plan regenerated."}

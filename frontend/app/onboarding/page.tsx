@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { clearAuthSessionKeepProfile, type PrepMeUser } from "@/lib/auth.ts"
+import { clearAuthSessionKeepProfile, type PrepMeUser } from "@/lib/auth"
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 

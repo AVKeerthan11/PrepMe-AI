@@ -67,7 +67,7 @@ export function getProgressForSubject(
     return { percent: pct, covered, total: meta.chapters }
   }
 
-  if (normalizeSubject(profile?.subject) === id && profile.mastery) {
+  if (normalizeSubject(profile?.subject) === id && profile?.mastery) {
     const scores = Object.values(profile.mastery).map((m) => m.score)
     if (scores.length > 0) {
       const avg = scores.reduce((a, b) => a + b, 0) / scores.length

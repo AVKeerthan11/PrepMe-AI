@@ -10,7 +10,8 @@
 - **Adaptive Quiz:** Generate questions from PDFs and adapt difficulty based on performance.
 - **Semantic Evaluation:** Assess answers by meaning (not just keyword matching), producing structured feedback.
 - **Voice Input/Output:** Transcribe student voice answers and read tutor/feedback aloud.
-- **Study Planner + Analytics (depending on enabled routes):** Recommend study sessions based on mastery.
+- **Dynamic Adaptive Study Planner:** Automatically schedules, packs, and reschedules study sessions based on priority score, mastery levels, quiz performance, and user exam date boundaries.
+- **Cross-Subject Progress & Analytics:** Real-time progress bar summaries across all 4 core subjects (Science, Mathematics, Social Studies, English).
 
 ---
 
@@ -30,6 +31,22 @@ Result returned to UI with:
 - Citations / retrieved page references
 - Difficulty / mastery signals
 ```
+
+---
+
+## Core API Endpoints Overview
+
+### Planner & Scheduling (`/api/planner`)
+- `GET /api/planner/`: Returns scheduled study sessions filtered by subject.
+- `POST /api/planner/regenerate`: Rebuilds the user's study plan based on updated mastery scores, quiz performance, and exam dates.
+- `POST /api/planner/generate-session`: Manually plans a chapter, strictly respecting user `exam_date` constraints (returns `400 Bad Request` if calendar before exam is full).
+- `POST /api/planner/complete-session` & `PATCH /api/planner/sessions/{id}/complete`: Marks a session completed.
+- `GET /api/planner/study-now`: Fetches highest-priority topic to study.
+
+### Profile & Mastery (`/api/profile`)
+- `GET /api/profile/`: Fetches user profile and active subject mastery.
+- `POST /api/profile/mastery`: Updates mastery score for a topic and triggers reactive revision sessions if score < 0.6.
+- `GET /api/profile/mastery-summary`: Returns aggregate progress stats (percent, topics covered, total syllabus topics) across all 4 core subjects.
 
 ---
 
