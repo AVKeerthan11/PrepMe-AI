@@ -449,15 +449,41 @@ export default function TutorPage() {
 
         {/* Header */}
         <div className="mb-3">
-          
-          <h1 className="font-serif font-black text-[2rem] text-[#1A1A1A] leading-none">Ask anything.</h1>
-          <p className="text-[#999] text-xs font-mono mt-1">
-            {normalizedSubject === "maths" ? "NCERT Class 8 Maths" 
-              : normalizedSubject === "social" ? "NCERT Class 8 Social Science"
-              : normalizedSubject === "english" ? "NCERT Class 8 English"
-              : "NCERT Class 8 Science"} · Adapts to your mastery
-          </p>
-        </div>
+  <h1 className="font-serif font-black text-[2rem] text-[#1A1A1A] leading-none">
+    Ask anything.
+  </h1>
+
+  <div className="flex items-center gap-2 mt-2 flex-wrap font-mono">
+    {/* Subject & Class Label */}
+    <span className="text-[#333] text-xs font-bold uppercase tracking-wider">
+      {normalizedSubject === "maths"
+        ? "NCERT Class 8 Maths"
+        : normalizedSubject === "social"
+        ? "NCERT Class 8 Social Science"
+        : normalizedSubject === "english"
+        ? "NCERT Class 8 English"
+        : "NCERT Class 8 Science"}
+    </span>
+
+    <span className="text-[#1A1A1A] font-black">·</span>
+
+    {/* Highly Visible Mastery Badge */}
+    <span
+      className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-wider border border-[#1A1A1A] ${
+        normalizedSubject === "maths"
+          ? "bg-[#D6E6FF] text-[#1D3557]"
+          : normalizedSubject === "social"
+          ? "bg-[#FFD6D6] text-[#991B1B]"
+          : normalizedSubject === "english"
+          ? "bg-[#E9D5FF] text-[#5B21B6]"
+          : "bg-[#FEF0B3] text-[#8A6D00]"
+      }`}
+      style={{ boxShadow: "2px 2px 0 #1A1A1A" }}
+    >
+      Adapts to your mastery
+    </span>
+  </div>
+</div>
 
         {/* Topic selector */}
         <div className="flex items-center gap-3 mb-3 flex-wrap">

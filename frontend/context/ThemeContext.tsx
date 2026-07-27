@@ -28,12 +28,12 @@ const SUBJECT_TO_THEME: Record<string, string> = {
   English: "theme-english",
 }
 
-// Background image per subject
+// Background image per subject theme
 const SUBJECT_BG: Record<string, string> = {
-  "theme-science":     "url('/prepme-bg4.png')",
-  "theme-mathematics": "url('/prepme-bg-maths.png')",
-  "theme-social":      "url('/prepme-bg-social.png')",
-  "theme-english":     "url('/prepme-bg-english.png')",
+  "theme-science":     "url('/background.png')",
+  "theme-mathematics": "url('/backgroundmath.png')",
+  "theme-social":      "url('/backgroundsocial.png')",
+  "theme-english":     "url('/backgroundenglish.png')",
 }
 
 const ALL_THEMES = Object.values(SUBJECT_TO_THEME).filter(
@@ -48,7 +48,6 @@ function applyTheme(theme: string) {
 
 function readSubject(): string {
   try {
-    // Prefer the profile subject stored in prepme_user
     const user = JSON.parse(localStorage.getItem("prepme_user") || "{}")
     const subject = normalizeSubject(user.subject)
     if (subject) return subject
@@ -81,7 +80,7 @@ export function SubjectThemeProvider({ children }: { children: React.ReactNode }
     return () => window.removeEventListener("storage", onStorage)
   }, [])
 
-  // Poll for subject changes within the same tab (subject switcher calls setSubject via auth context)
+  // Poll for subject changes within the same tab
   useEffect(() => {
     let last = readSubject()
     const id = setInterval(() => {

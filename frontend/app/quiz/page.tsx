@@ -84,7 +84,7 @@ interface QuizQuestion {
   options?: string[]; correct?: string | boolean
   answer?: string; reference_answer?: string
   explanation?: string; topic: string; difficulty: number
-  concept?: string
+  concept?: string; expected_points?: string[]
 }
 interface Assessment {
   overall_score: number; score_percentage: number; correctness: string
@@ -311,13 +311,11 @@ function MisconceptionBox({ text, visible, onJournal }: {
 }
 
 // ── Setup Screen ───────────────────────────────────────────────────────────────
-function SetupScreen({ subject, onStart, onJournal, initialTopic, enhancedMode, setEnhancedMode, blockedTopic, setBlockedTopic }: {
+function SetupScreen({ subject, onStart, onJournal, initialTopic, blockedTopic, setBlockedTopic }: {
   subject: string
   onStart: (cfg: { topic: string; qType: QType; mode: Mode; count: number; difficulty: number }) => void
   onJournal: () => void
   initialTopic?: string
-  enhancedMode: boolean
-  setEnhancedMode: (v: boolean) => void
   blockedTopic: {reason: string, weakPrereqs: string[]} | null
   setBlockedTopic: (v: {reason: string, weakPrereqs: string[]} | null) => void
 }) {
@@ -437,29 +435,6 @@ function SetupScreen({ subject, onStart, onJournal, initialTopic, enhancedMode, 
                     fillColor={difficulty < 0.4 ? "#39ff14" : difficulty < 0.8 ? "#ffeb3b" : "#ff0000"}
                   />
                 </div>
-              </div>
-              
-              {/* Enhanced Mode Toggle */}
-              <div className="mt-4 p-3 border border-[rgba(28,31,58,0.2)] bg-[rgba(74,111,165,0.05)]">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={enhancedMode}
-                    onChange={(e) => {
-                      console.log("[quiz] Enhanced mode checkbox clicked, new value:", e.target.checked)
-                      setEnhancedMode(e.target.checked)
-                    }}
-                    className="w-4 h-4"
-                  />
-                  <div>
-                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#1c1f3a]">
-                      Enhanced Mode {enhancedMode ? "✓" : ""}
-                    </span>
-                    <p className="text-[10px] text-[#666] mt-0.5">
-                      Non-repeating questions + prerequisite check
-                    </p>
-                  </div>
-                </label>
               </div>
               
               {/* Blocked Topic Warning */}
@@ -660,6 +635,19 @@ function QuestionCard({ q, chapterTopic, idx, total, mode, curDiff, prevDiff, at
               <div className="mt-2">
                 <AudioRecorder onTranscribed={(t) => setSelected(t)} />
               </div>
+              {/* Expected points hints — collapsed by default */}
+              {q.expected_points && Array.isArray(q.expected_points) && q.expected_points.length > 0 && (
+                <details className="mt-3">
+                  <summary className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#4A6FA5] cursor-pointer select-none">
+                    💡 Show hints
+                  </summary>
+                  <ul className="mt-2 space-y-1 pl-3 border-l-2 border-[#4A6FA5]/30">
+                    {q.expected_points.map((pt: string, i: number) => (
+                      <li key={i} className="text-xs text-[#1c1f3a] font-mono opacity-70">{pt}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
           )}
 
@@ -1129,8 +1117,8 @@ function QuizPageInner() {
   const [questions, setQuestions]   = useState<QuizQuestion[]>([])
   const [qIdx, setQIdx]             = useState(0)
   
-  // Enhanced mode state
-  const [enhancedMode, setEnhancedMode] = useState(false)
+  // Quiz state
+  const [enhancedMode] = useState(true)
   const [questionHistory, setQuestionHistory] = useState<Array<{text: string, embedding: number[]}>>([])
   const [blockedTopic, setBlockedTopic] = useState<{reason: string, weakPrereqs: string[]} | null>(null)
   const [attempts, setAttempts]     = useState<AttemptRecord[]>([])
@@ -1215,71 +1203,49 @@ function QuizPageInner() {
     const qType = cfg.qType === "mixed" ? QTYPES[index % QTYPES.length] : cfg.qType
     console.log(`[quiz] Q${index + 1} difficulty=${difficulty} type=${qType}`)
     try {
-      if (enhancedMode) {
-        // Use enhanced endpoint
-        console.log("[quiz] Enhanced mode ON - using enhanced endpoint")
-        console.log("[quiz] Mastery scores:", profile?.mastery)
-        const res = await authFetch("/api/quiz/generate-question-enhanced", {
-          method: "POST",
-          body: JSON.stringify({
-            topic: cfg.topic,
-            difficulty,
-            question_history: questionHistory,
-            mastery_scores: profile?.mastery || {},
-            class_level: 8,
-            subject,
-            retry_context: null
-          }),
+      const res = await authFetch("/api/quiz/generate-question-enhanced", {
+        method: "POST",
+        body: JSON.stringify({
+          topic: cfg.topic,
+          difficulty,
+          question_history: questionHistory,
+          mastery_scores: profile?.mastery || {},
+          class_level: 8,
+          subject,
+          question_format: qType,
+          retry_context: null
+        }),
+      })
+      if (!res.ok) return null
+      const data = await res.json()
+
+      // Check if blocked
+      if (data.blocked) {
+        setBlockedTopic({
+          reason: data.reason,
+          weakPrereqs: data.weak_prerequisites || []
         })
-        console.log("[quiz] Enhanced endpoint response status:", res.status)
-        if (!res.ok) return null
-        const data = await res.json()
-        console.log("[quiz] Enhanced endpoint response:", data)
-        
-        // Check if blocked
-        if (data.blocked) {
-          console.log("[quiz] BLOCKED - showing prerequisite warning")
-          setBlockedTopic({
-            reason: data.reason,
-            weakPrereqs: data.weak_prerequisites || []
-          })
-          setPhase("setup")
-          return null
-        }
-        
-        // Add to history
-        if (data.embedding) {
-          setQuestionHistory(prev => [...prev, {
-            text: data.question,
-            embedding: data.embedding
-          }])
-          console.log("[quiz] Added question to history, total:", questionHistory.length + 1)
-        }
-        
-        return { ...data, topic: cfg.topic }
-      } else {
-        // Use standard endpoint
-        console.log("[quiz] Enhanced mode OFF - using standard endpoint")
-        const res = await authFetch("/api/quiz/generate-question", {
-          method: "POST",
-          body: JSON.stringify({
-            topic: cfg.topic, difficulty, question_type: qType,
-            question_index: index, subject, previous_questions: pqs,
-          }),
-        })
-        if (!res.ok) return null
-        const data = await res.json()
-        return { ...data, topic: cfg.topic }
+        setPhase("setup")
+        return null
       }
+
+      // Store question fingerprint
+      if (data.embedding) {
+        setQuestionHistory(prev => [...prev, {
+          text: data.question,
+          embedding: data.embedding
+        }])
+      }
+
+      return { ...data, topic: cfg.topic }
     } catch { return null }
-  }, [authFetch, subject, enhancedMode, questionHistory, profile, setBlockedTopic, setPhase])
+  }, [authFetch, subject, questionHistory, profile, setBlockedTopic, setPhase])
 
   const handleStart = async (cfg: { topic: string; qType: QType; mode: Mode; count: number; difficulty: number }) => {
-    console.log("[quiz] handleStart - Enhanced Mode:", enhancedMode)
     console.log("[quiz] handleStart - Question History length:", questionHistory.length)
     setConfig(cfg); setAttempts([]); setQIdx(0); setTotalXP(0)
     setPrevQs([]); setCurDiff(cfg.difficulty); setPrevDiff(cfg.difficulty)
-    setConsecutiveCorrect(0)
+    setConsecutiveCorrect(0); setQuestionHistory([])
     setBusy(true); setPhase("question")
 
     // Fetch prerequisites gap
@@ -1496,15 +1462,66 @@ function QuizPageInner() {
   const handleRetake = () => {
     setPhase("setup"); setQuestions([]); setAttempts([])
     setQIdx(0); setPrevQs([]); setCurrentAssessment(null); setConsecutiveCorrect(0)
+    setQuestionHistory([])
     setPrereqGap([])
     setShowPrereqBanner(false)
   }
 
   const currentQ = questions[qIdx]
+  const inProgress = phase === "question" || phase === "feedback"
+  const [exitConfirm, setExitConfirm] = useState(false)
+
+  const handleExitConfirmed = () => {
+    setExitConfirm(false)
+    handleRetake()
+  }
 
   return (
-    <AppShell>
+    <AppShell inProgress={inProgress}>
       <Toast message={toast} visible={toastVisible} />
+
+      {/* Exit-early button — shown only while a quiz is in progress */}
+      {inProgress && (
+        <div className="flex justify-end mb-3">
+          <button
+            onClick={() => setExitConfirm(true)}
+            className="font-mono text-[10px] font-bold uppercase tracking-wider text-[#c0392b] border border-[#c0392b] px-3 py-1.5 hover:bg-[#c0392b] hover:text-white transition-colors rounded-none"
+          >
+            ✕ Exit Early
+          </button>
+        </div>
+      )}
+
+      {/* Exit confirmation modal */}
+      {exitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(10,10,10,0.6)" }}>
+          <div className="bg-[#FDFCF9] border-2 border-[#1c1f3a] w-full max-w-sm mx-4" style={{ boxShadow: "6px 6px 0 #1c1f3a" }}>
+            <div className="px-5 py-4 border-b border-[rgba(28,31,58,0.12)] bg-[#F2EDE5]">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-[#888]">Warning</p>
+              <h2 className="font-serif font-black text-lg text-[#1c1f3a]">Exit Quiz?</h2>
+            </div>
+            <div className="px-5 py-4">
+              <p className="font-mono text-sm text-[#1c1f3a] leading-relaxed">
+                Are you sure you want to leave? Your progress on this attempt will not be saved.
+              </p>
+            </div>
+            <div className="px-5 pb-5 flex gap-3">
+              <button
+                onClick={() => setExitConfirm(false)}
+                className="flex-1 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1c1f3a] text-[#1c1f3a] hover:bg-[rgba(28,31,58,0.05)] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExitConfirmed}
+                className="flex-1 py-2.5 font-mono text-xs font-bold uppercase tracking-wider bg-[#c0392b] border-2 border-[#c0392b] text-white hover:bg-[#a93226] transition-colors"
+              >
+                Yes, Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {phase !== "setup" && phase !== "journal" && (
         <div className="flex items-center gap-4 mb-5 text-sm border-b border-[#C0BAB0] pb-4 rounded-none">
@@ -1520,8 +1537,6 @@ function QuizPageInner() {
           onStart={handleStart} 
           onJournal={() => setPhase("journal")} 
           initialTopic={urlTopic ?? undefined}
-          enhancedMode={enhancedMode}
-          setEnhancedMode={setEnhancedMode}
           blockedTopic={blockedTopic}
           setBlockedTopic={setBlockedTopic}
         />
