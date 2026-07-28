@@ -160,7 +160,17 @@ export default function ExamPage() {
   const [currentSection, setCurrentSection] = useState(0)
   const [results, setResults] = useState<any>(null)
   const [error, setError] = useState("")
-  
+  const [exitConfirm, setExitConfirm] = useState(false)
+
+  const handleExitExam = () => {
+    setExitConfirm(false)
+    setPhase("setup")
+    setPaper(null)
+    setAnswers({})
+    setTimeLeft(3 * 60 * 60)
+    setCurrentSection(0)
+    setResults(null)
+  }
 
   // Timer countdown
   useEffect(() => {
@@ -839,7 +849,37 @@ export default function ExamPage() {
     })
 
     return (
-      <AppShell>
+      <AppShell inProgress>
+        {/* Exit confirmation modal */}
+        {exitConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(10,10,10,0.6)" }}>
+            <div className="bg-white border-2 border-gray-800 w-full max-w-sm mx-4" style={{ boxShadow: "6px 6px 0 #1c1f3a" }}>
+              <div className="px-5 py-4 border-b border-gray-200 bg-gray-50">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-gray-500">Warning</p>
+                <h2 className="font-bold text-lg text-gray-900">Exit Exam?</h2>
+              </div>
+              <div className="px-5 py-4">
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  Are you sure you want to leave? Your progress on this attempt will not be saved.
+                </p>
+              </div>
+              <div className="px-5 pb-5 flex gap-3">
+                <button
+                  onClick={() => setExitConfirm(false)}
+                  className="flex-1 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-2 border-gray-800 text-gray-800 hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleExitExam}
+                  className="flex-1 py-2.5 font-mono text-xs font-bold uppercase tracking-wider bg-red-600 border-2 border-red-600 text-white hover:bg-red-700 transition-colors"
+                >
+                  Yes, Exit
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="min-h-screen bg-gray-50">
           <div className="sticky top-0 z-50 bg-white border-b-2 border-gray-300 p-4 flex justify-between items-center shadow">
             <div className="font-bold text-lg">
@@ -853,6 +893,12 @@ export default function ExamPage() {
               {formatTime(timeLeft)}
             </div>
             <div className="flex items-center gap-4">
+              <button
+                onClick={() => setExitConfirm(true)}
+                className="font-mono text-xs font-bold uppercase tracking-wider text-red-600 border border-red-400 px-3 py-1.5 hover:bg-red-600 hover:text-white transition-colors"
+              >
+                ✕ Exit Early
+              </button>
               <span className="text-sm font-semibold">
                 {answeredCount} / {totalQuestions} answered
               </span>

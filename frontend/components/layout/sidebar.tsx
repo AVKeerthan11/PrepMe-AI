@@ -2,12 +2,14 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import {
-  LayoutDashboard, Bot, FileQuestion, Calendar, BarChart3, User, LogOut, ClipboardCheck,
+  LayoutDashboard, Bot, FileQuestion, Calendar, BarChart3, User, LogOut, ClipboardCheck, BookOpen,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth"
+import { SubjectModal } from "@/components/ui/subject-modal"
+import type { AppSubject } from "@/lib/subjects"
 
 const nav = [
   { name: "Dashboard",     href: "/",         icon: LayoutDashboard },
@@ -22,7 +24,8 @@ const nav = [
 export function Sidebar() {
   const pathname    = usePathname()
   const router      = useRouter()
-  const { profile, authFetch, refreshProfile, logout } = useAuth()
+  const { profile, setSubject, logout } = useAuth()
+  const [subjectModalOpen, setSubjectModalOpen] = useState(false)
 
   useEffect(() => {
     router.prefetch("/")
@@ -36,15 +39,14 @@ export function Sidebar() {
 
   const handleLogout = () => { logout(); router.push("/") }
 
-  const switchSubject = async (subject: "science" | "maths") => {
-    if (profile?.subject === subject) return
-    await authFetch("/api/profile/", { method: "PATCH", body: JSON.stringify({ subject }) })
-    await refreshProfile()
+  const switchSubject = async (subject: AppSubject) => {
+    await setSubject(subject)
+    setSubjectModalOpen(false)
   }
 
   const daysLeft     = profile?.days_to_exam ?? 30
   const initials     = profile?.name?.slice(0, 2).toUpperCase() ?? "ST"
-  const activeSubject = profile?.subject ?? "science"
+  const activeSubject = (profile?.subject ?? "science") as AppSubject
 
   return (
     <aside className="flex h-screen w-56 flex-col bg-[#0A0A0A] border-r border-[#2A2A2A] flex-shrink-0 sticky top-0">
@@ -93,21 +95,34 @@ export function Sidebar() {
         {/* Subject switcher */}
         <div className="pt-3 mt-2 border-t border-[#2A2A2A]">
           <p className="section-label px-3 mb-2">Subject</p>
-          <div className="flex gap-1.5 px-1">
-            {(["science", "maths"] as const).map(s => (
-              <button key={s} onClick={() => switchSubject(s)}
-                className={cn(
-                  "flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-100",
-                  activeSubject === s
-                    ? "bg-[#2a7d4f] text-[#0A0A0A]"
-                    : "bg-[#1A1A1A] text-[#555] hover:text-[#1c1f3a] border border-[#2A2A2A]"
-                )}>
-                {s}
-              </button>
-            ))}
+          <div className="px-1">
+            <button
+              onClick={() => setSubjectModalOpen(true)}
+              className={cn(
+                "w-full flex items-center justify-between gap-2 px-3 py-2.5",
+                "border-2 border-[#2A2A2A] bg-[#1A1A1A] text-[#888]",
+                "hover:border-[#4A6FA5] hover:text-[#1c1f3a] transition-all duration-100",
+                "font-mono text-[10px] font-bold uppercase tracking-wider"
+              )}
+              style={{ boxShadow: "2px 2px 0 #2A2A2A" }}
+            >
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-3 w-3 flex-shrink-0" />
+                <span>Subjects</span>
+              </div>
+              <span className="text-[#555] capitalize">{activeSubject}</span>
+            </button>
           </div>
         </div>
       </nav>
+
+      {/* Subject selection modal */}
+      <SubjectModal
+        open={subjectModalOpen}
+        current={activeSubject}
+        onSelect={switchSubject}
+        onClose={() => setSubjectModalOpen(false)}
+      />
 
       {/* Bottom */}
       <div className="px-4 py-4 border-t border-[#2A2A2A] space-y-3">

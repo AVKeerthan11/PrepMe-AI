@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { motion } from "framer-motion"
 import { usePathname, useRouter } from "next/navigation"
+import { cn } from "@/lib/utils"
 import {
   LogOut,
   LayoutDashboard,
@@ -204,7 +205,7 @@ const BriefcaseNavItem = ({
   )
 }
 
-export function TopNav() {
+export function TopNav({ inProgress = false }: { inProgress?: boolean }) {
   const router = useRouter()
   const { profile, logout } = useAuth()
   const [profileData, setProfileData] = useState<{avatar?: string, name?: string, email?: string} | null>(null)
@@ -287,7 +288,7 @@ export function TopNav() {
           </Link>
 
           {/* Briefcase Nav Items */}
-          <nav className="flex items-start h-full gap-2 px-4 pt-1">
+          <nav className={cn("flex items-start h-full gap-2 px-4 pt-1", inProgress && "pointer-events-none opacity-40 select-none")}>
             {nav.map(({ name, href, icon }) => (
               <BriefcaseNavItem key={href} name={name} href={href} icon={icon} />
             ))}

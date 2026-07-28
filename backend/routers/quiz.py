@@ -832,6 +832,7 @@ class EnhancedQuestionRequest(BaseModel):
     class_level: int = 8
     subject: Optional[str] = None
     retry_context: Optional[dict] = None  # {original_question, student_wrong_answer, correct_answer}
+    question_format: str = "mixed"     # "mcq" | "truefalse" | "fillblank" | "short" | "mixed" | "teach_back"
 
 
 @router.post("/generate-question-enhanced")
@@ -895,13 +896,27 @@ async def generate_question_enhanced(
     # ── GENERATE QUESTION WITH DUPLICATE CHECK ────────────────────────────────
     max_retries = 3
     last_question = None
+    is_dup = False
+
+    # Map enhanced format names to the existing QType values
+    _FORMAT_MAP = {
+        "mcq": "mcq",
+        "truefalse": "truefalse",
+        "fillblank": "fillblank",
+        "short": "short",
+        "teach_back": "teach_back",
+        "mixed": "mixed",
+        "fill": "fillblank",
+        "teach": "teach_back",
+    }
+    resolved_format = _FORMAT_MAP.get(req.question_format.lower(), "mixed")
     
     for attempt in range(max_retries):
         # Call existing generate_question logic
         q_req = QuestionRequest(
             topic=req.topic,
             difficulty=req.difficulty,
-            question_type="mixed",
+            question_type=resolved_format,
             question_index=attempt,
             subject=subject,
             previous_questions=[h["text"] for h in req.question_history]

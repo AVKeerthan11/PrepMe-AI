@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
+import { BookOpen } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { clearAuthSessionKeepProfile, type PrepMeUser } from "@/lib/auth"
+import { SubjectModal } from "@/components/ui/subject-modal"
+import type { AppSubject } from "@/lib/subjects"
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -33,10 +38,42 @@ const HOBBIES = [
 ] as const
 
 const SUBJECT_CARDS = [
-  { id: "Science", emoji: "🔬", chapters: "15 CHAPTERS" },
-  { id: "Mathematics", emoji: "📐", chapters: "14 CHAPTERS" },
-  { id: "Social Studies", emoji: "🌍", chapters: "20 CHAPTERS" },
-  { id: "English", emoji: "📖", chapters: "12 CHAPTERS" },
+  {
+    id: "Science",
+    emoji: "🔬",
+    chapters: "11 CHAPTERS",
+    color: "#E6B800",
+    bg: "#FFF9E6",
+    textColor: "#B8890D",
+    imagePath: "/subjects/science.png",
+  },
+  {
+    id: "Mathematics",
+    emoji: "📐",
+    chapters: "14 CHAPTERS",
+    color: "#4A6FA5",
+    bg: "#F0F4F8",
+    textColor: "#2A4A6B",
+    imagePath: "/subjects/maths.png",
+  },
+  {
+    id: "Social Studies",
+    emoji: "🌍",
+    chapters: "7 CHAPTERS",
+    color: "#E05252",
+    bg: "#FDF2F2",
+    textColor: "#B91C1C",
+    imagePath: "/subjects/social.png",
+  },
+  {
+    id: "English",
+    emoji: "📖",
+    chapters: "15 CHAPTERS",
+    color: "#8B5CF6",
+    bg: "#F5F3FF",
+    textColor: "#6B21A8",
+    imagePath: "/subjects/english.png",
+  },
 ] as const
 
 const inputCls =
@@ -118,6 +155,8 @@ export default function OnboardingPage() {
     SUBJECT_CARDS.map((s) => s.id)
   )
   const [dailyHours, setDailyHours] = useState(2.5)
+  const [subjectModalOpen, setSubjectModalOpen] = useState(false)
+  const [primarySubject, setPrimarySubject] = useState<AppSubject>("science")
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("prepme_token") || localStorage.getItem("token") : null
@@ -169,6 +208,10 @@ export default function OnboardingPage() {
     })
   }
 
+  const handleSubjectSelect = (subject: AppSubject) => {
+    setPrimarySubject(subject)
+  }
+
   const finish = async () => {
     setSubmitting(true)
     try {
@@ -199,9 +242,7 @@ export default function OnboardingPage() {
           daily_hours: dailyHours,
         }
         if (examDate) patchBody.exam_date = examDate
-        patchBody.subject = favouriteSubject
-          ? mapSubjectToApi(favouriteSubject)
-          : mapSubjectToApi(selectedSubjects[0] || "Science")
+        patchBody.subject = primarySubject
 
         try {
           const controller = new AbortController()
@@ -456,42 +497,28 @@ export default function OnboardingPage() {
 
           {step === 3 && (
             <>
-              <p className="font-mono text-[10px] uppercase tracking-widest text-[#666] mb-3">
-                Which subjects are you studying this year?
+              <p className="font-mono text-[10px] uppercase tracking-widest text-[#666] mb-4">
+                Choose your primary subject to start with
               </p>
 
-              <div className="grid grid-cols-2 gap-2 mb-5">
-                {SUBJECT_CARDS.map((s) => {
-                  const selected = selectedSubjects.includes(s.id)
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => toggleSubject(s.id)}
-                      className={`relative border-2 border-[#1A1A1A] p-3 text-center transition-colors ${
-                        selected ? "bg-[#F2EDE5]" : "bg-[#FFFFFF] opacity-70"
-                      }`}
-                      style={
-                        selected
-                          ? { boxShadow: "3px 3px 0 #1c1f3a" }
-                          : { boxShadow: "2px 2px 0 #C0BAB0" }
-                      }
-                    >
-                      {selected && (
-                        <span className="absolute top-1 right-1 text-[10px] font-mono font-bold text-[#2a7d4f]">
-                          ✓
-                        </span>
-                      )}
-                      <div className="text-2xl mb-1">{s.emoji}</div>
-                      <div className="font-mono text-[10px] font-bold uppercase tracking-wide">
-                        {s.id}
-                      </div>
-                      <div className="font-mono text-[8px] text-[#AAA] mt-1 uppercase">
-                        {s.chapters}
-                      </div>
-                    </button>
-                  )
-                })}
+              {/* Single SUBJECTS button */}
+              <div className="mb-6">
+                <button
+                  onClick={() => setSubjectModalOpen(true)}
+                  className={cn(
+                    "flex items-center justify-between gap-3 px-6 py-4 w-full",
+                    "border-2 border-[#1A1A1A] bg-[#F2EDE5] text-[#1A1A1A]",
+                    "hover:bg-[#1A1A1A] hover:text-[#F2EDE5] transition-all duration-150",
+                    "font-mono text-sm font-bold uppercase tracking-wider"
+                  )}
+                  style={{ boxShadow: "4px 4px 0 #1A1A1A" }}
+                >
+                  <div className="flex items-center gap-3">
+                    <BookOpen className="h-5 w-5 flex-shrink-0" />
+                    <span>Subjects</span>
+                  </div>
+                  <span className="text-xs capitalize opacity-75">{primarySubject}</span>
+                </button>
               </div>
 
               <div className="mb-6">
@@ -540,6 +567,14 @@ export default function OnboardingPage() {
           Classes 4–12 · CBSE · ICSE
         </p>
       </div>
+
+      {/* Subject selection modal */}
+      <SubjectModal
+        open={subjectModalOpen}
+        current={primarySubject}
+        onSelect={handleSubjectSelect}
+        onClose={() => setSubjectModalOpen(false)}
+      />
 
       <style jsx>{`
         .onboarding-range {
