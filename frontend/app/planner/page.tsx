@@ -4,8 +4,9 @@ import { useEffect, useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { AppShell } from "@/components/layout/app-shell"
 import { useAuth } from "@/lib/auth"
+import { normalizeSubject } from "@/lib/subjects"
 import { cn } from "@/lib/utils"
-import { Calendar, Play, RefreshCw, AlertTriangle, Flame, Clock, CheckCircle2 } from "lucide-react"
+import { Calendar, RefreshCw, AlertTriangle, Flame, Clock, CheckCircle2 } from "lucide-react"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface PlanSessionGoal {
@@ -117,8 +118,6 @@ const TIME_PREFS = [
   { id: "night", label: "Night (8pm-11pm)", hours: [20, 21, 22] },
 ] as const
 
-const MASTERED_THRESHOLD = 0.6
-
 function getSubjectKey(session: PlanSession): string {
   if (session.subject_key) return session.subject_key
   const raw = (session.subject || "").toLowerCase()
@@ -183,7 +182,7 @@ function SessionChip({
   const displayStatus = getDisplayStatus(s)
   const subjectKey = getSubjectKey(s)
   const badge = SUBJECT_BADGES[subjectKey] ?? SUBJECT_BADGES.science
-  // CHANGE 2: Bright green styling for done status
+
   const statusStyles =
     displayStatus === "done"
       ? { borderColor: "#00c853", bgColor: "rgba(0, 200, 83, 0.12)", label: "Done", color: "#00c853" }
@@ -217,8 +216,6 @@ function SessionChip({
         >
           {getSubjectLabel(subjectKey)}
         </span>
-        {/* ADDITION 1: Session type badge */}
-        
       </div>
       <p className="truncate text-[#1c1f3a] normal-case font-serif font-bold text-sm leading-tight mt-1" style={{ whiteSpace: "normal", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
         {getSessionChapter(s).split(":")[0].trim()}
@@ -257,7 +254,6 @@ function SessionChip({
           <CheckCircle2 className="w-2.5 h-2.5" /> Done
         </span>
       )}
-      {/* CHANGE 3: Delete button with inline confirmation */}
       {confirmDeleteId !== s.id && (
         <button
           type="button"
@@ -320,7 +316,6 @@ function DetailPanel({ session, onClose, onComplete, onToggleGoal }: {
     <div className="fixed inset-0 z-50 flex justify-center items-center bg-black/60 p-4" onClick={onClose}>
       <div className="w-[420px] max-w-full index-card animate-slide-up"
         onClick={e => e.stopPropagation()}>
-        {/* Header Tab */}
         <div className="absolute -top-10 left-4 bg-[#fdfcf9] border-t border-l border-r border-[#1c1f3a] px-6 py-2 rounded-t-lg z-[-1] flex items-center gap-2">
           <span className={cn("w-3 h-3 border border-[#1c1f3a]", c.bg)} />
           <span className="font-mono text-[10px] font-black uppercase tracking-widest text-[#1c1f3a]">{c.label}</span>
@@ -338,7 +333,6 @@ function DetailPanel({ session, onClose, onComplete, onToggleGoal }: {
             <button onClick={onClose} className="text-[#1c1f3a] font-mono text-xl font-black hover:text-[#c0392b]">&times;</button>
           </div>
 
-          {/* Mastery bar */}
           <div>
             <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#1c1f3a] mb-2">Mastery at scheduling</p>
             <div className="h-3 w-full border-2 border-[#1c1f3a] bg-transparent overflow-hidden">
@@ -352,7 +346,6 @@ function DetailPanel({ session, onClose, onComplete, onToggleGoal }: {
             </p>
           </div>
 
-          {/* Micro-goals */}
           <div>
             <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#1c1f3a] mb-4">Task Checklist</p>
             <div className="space-y-4">
@@ -384,7 +377,6 @@ function DetailPanel({ session, onClose, onComplete, onToggleGoal }: {
             </div>
           </div>
 
-          {/* Actions */}
           <div className="pt-6 border-t-2 border-dashed border-[#1c1f3a] flex gap-3 flex-wrap">
             <button
               onClick={() => router.push(`/quiz?topic=${encodeURIComponent(session.topic)}`)}
@@ -424,8 +416,6 @@ function StudyNowModal({ data, onClose }: { data: StudyNow; onClose: () => void 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="w-[420px] max-w-full index-card animate-slide-up relative"
         onClick={e => e.stopPropagation()}>
-        
-        {/* Header Tab */}
         <div className="absolute -top-10 left-4 bg-[#fdfcf9] border-t border-l border-r border-[#1c1f3a] px-6 py-2 rounded-t-lg z-[-1] flex items-center gap-2">
           <span className={cn("w-3 h-3 border border-[#1c1f3a]", c.bg)} />
           <span className="font-mono text-[10px] font-black uppercase tracking-widest text-[#1c1f3a]">{c.label}</span>
@@ -460,7 +450,8 @@ function StudyNowModal({ data, onClose }: { data: StudyNow; onClose: () => void 
 // ── Main Planner Page ──────────────────────────────────────────────────────────
 export default function PlannerPage() {
   const { profile, authFetch, refreshProfile, subjectVersion } = useAuth()
-  const [selectedSubject, setSelectedSubject] = useState<string>("all")
+  const activeSubject = normalizeSubject(profile?.subject) ?? "science"
+  const [selectedSubject, setSelectedSubject] = useState<string>(activeSubject)
   const [plan, setPlan]           = useState<PlanResponse | null>(null)
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState("")
@@ -468,14 +459,14 @@ export default function PlannerPage() {
   const [filter, setFilter]       = useState("all")
   const [selected, setSelected]   = useState<PlanSession | null>(null)
   const [studyNow, setStudyNow]   = useState<StudyNow | null>(null)
-  const [regenerating, setRegen]  = useState(false)
+  const [, setRegen]              = useState(false)
   const [burnoutWarnings, setBurnoutWarnings] = useState<any[]>([])
   const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
   const [planModalOpen, setPlanModalOpen] = useState(false)
   const [planSubject, setPlanSubject] = useState("science")
   const [planSessionType, setPlanSessionType] = useState("study")
   const [planChapter, setPlanChapter] = useState("")
-  const [planDuration, setPlanDuration] = useState(45)
+  const [planDuration] = useState(45)
   const [preferredSlots, setPreferredSlots] = useState<string[]>(["evening"])
   const [planDays, setPlanDays] = useState(3)
   const [planError, setPlanError] = useState("")
@@ -483,26 +474,27 @@ export default function PlannerPage() {
   const [completionNotification, setCompletionNotification] = useState<string>("")
   const lastCompletionCheckRef = useRef("")
   
-  // CHANGE 1: Subject dropdown checklist states
   const [subjectDropdownOpen, setSubjectDropdownOpen] = useState(false)
   const [checkedSubjects, setCheckedSubjects] = useState<string[]>(["All", "Science", "Mathematics", "Social Studies", "English"])
   const dropdownRef = useRef<HTMLDivElement>(null)
   
-  // CHANGE 3: Delete confirmation state
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  
-  // ADDITION 2: Session type filter state
-  const [activeTypeFilter, setActiveTypeFilter] = useState("all")
+  const [activeTypeFilter] = useState("all")
 
   const toApiSubject = (s: string) => {
-    if (s === "all") return "all"
-    if (s === "Social Studies" || s === "social") return "social"
-    if (s === "Mathematics" || s === "mathematics" || s === "maths") return "mathematics"
-    if (s === "English" || s === "english") return "english"
+    const lower = s.toLowerCase()
+    if (lower === "all") return "all"
+    if (lower.includes("social")) return "social"
+    if (lower.includes("math")) return "maths"
+    if (lower.includes("english")) return "english"
     return "science"
   }
 
-  // CHANGE 1: Click-outside handler for dropdown
+  const syncDropdownSubjects = useCallback((subject: string) => {
+    setSelectedSubject(subject)
+    setCheckedSubjects(subject === "all" ? ["All", "Science", "Mathematics", "Social Studies", "English"] : [getSubjectLabel(subject)])
+  }, [])
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -514,14 +506,19 @@ export default function PlannerPage() {
   }, [])
 
   const currentChapterList = CHAPTERS_BY_SUBJECT[planSubject] ?? CHAPTERS_BY_SUBJECT.science
-
   const apiSubject = toApiSubject(selectedSubject)
+
+  useEffect(() => {
+    syncDropdownSubjects(activeSubject)
+  }, [activeSubject, syncDropdownSubjects])
 
   const fetchPlan = useCallback(async () => {
     setLoading(true); setError("")
-    setPlan(null)
     try {
-      const res = await authFetch(`/api/planner/?subject=${apiSubject}`)
+      // Keep a single source-of-truth cache for every subject. The checklist
+      // below filters this response locally, so switching subjects cannot
+      // discard a manually created session before the next render.
+      const res = await authFetch("/api/planner/?subject=all")
       if (!res.ok) throw new Error("Failed to load plan")
       setPlan(await res.json())
     } catch {
@@ -529,7 +526,7 @@ export default function PlannerPage() {
     } finally {
       setLoading(false)
     }
-  }, [authFetch, apiSubject])
+  }, [authFetch])
 
   useEffect(() => {
     if (!planModalOpen) return
@@ -555,7 +552,7 @@ export default function PlannerPage() {
   useEffect(() => {
     fetchPlan()
     fetchBurnoutCheck()
-  }, [fetchPlan, fetchBurnoutCheck, selectedSubject, subjectVersion])
+  }, [fetchPlan, fetchBurnoutCheck, activeSubject, selectedSubject, subjectVersion])
 
   useEffect(() => {
     if (!plan?.sessions?.length) return
@@ -584,8 +581,6 @@ export default function PlannerPage() {
         const data = await res.json().catch(() => ({}))
         if (data.completed) {
           completedAny = true
-          
-          // Handle next chapter auto-generation
           if (data.new_sessions && data.new_sessions.length > 0) {
             setPlan((current) => current ? {
               ...current,
@@ -616,8 +611,15 @@ export default function PlannerPage() {
       fetchPlan()
       fetchBurnoutCheck()
     }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") handleFocus()
+    }
     window.addEventListener("focus", handleFocus)
-    return () => window.removeEventListener("focus", handleFocus)
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => {
+      window.removeEventListener("focus", handleFocus)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [fetchPlan, fetchBurnoutCheck, refreshProfile])
 
   const handleToggleGoal = async (sessionId: string, goalIndex: number, done: boolean) => {
@@ -655,7 +657,6 @@ export default function PlannerPage() {
       method: "POST",
       body: JSON.stringify({ session_id: id, topic, subject: apiSubject }),
     })
-    // Optimistically mark done, then re-fetch so session_type reflects updated mastery
     setPlan(p => p ? {
       ...p,
       sessions: p.sessions.map(s => s.id === id ? { ...s, completed: true } : s)
@@ -678,7 +679,6 @@ export default function PlannerPage() {
   }
 
   const handleDelete = async (session: PlanSession) => {
-    // CHANGE 3: No browser confirm needed - inline confirmation handles it
     const res = await authFetch(`/api/planner/sessions/${session.id}`, {
       method: "DELETE",
     })
@@ -715,7 +715,6 @@ export default function PlannerPage() {
         throw new Error(typeof data.detail === "string" ? data.detail : "Failed to generate study plan")
       }
       
-      // Append new sessions to existing ones
       setPlan((current) => current ? {
         ...current,
         sessions: [...current.sessions, ...(data.sessions || [])],
@@ -726,6 +725,8 @@ export default function PlannerPage() {
       })
       
       setPlanModalOpen(false)
+      // Re-fetch from backend to ensure persistence across tab switches
+      await fetchPlan()
     } catch (err) {
       setPlanError(err instanceof Error ? err.message : "Failed to generate study plan")
     } finally {
@@ -740,27 +741,14 @@ export default function PlannerPage() {
     }
   }
 
-  const handleStudyNow = async () => {
-    const res = await authFetch("/api/planner/study-now")
-    if (res.ok) setStudyNow(await res.json())
-  }
-
-  const handleRegenerate = async () => {
-    setRegen(true)
-    const res = await authFetch("/api/planner/regenerate", { method: "POST" })
-    if (res.ok) setPlan(await res.json())
-    setRegen(false)
-  }
-
   // Build week days
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
-  // Filter sessions by type
+  // Filter sessions
   const filtered = (plan?.sessions ?? []).filter((session) =>
     filter === "all" || session.session_type === filter
   )
   
-  // CHANGE 1: Filter by checked subjects
   const visibleSessions = checkedSubjects.includes("All")
     ? filtered
     : filtered.filter(s => 
@@ -770,7 +758,6 @@ export default function PlannerPage() {
         )
       )
   
-  // ADDITION 2: Further filter by session type
   const finalSessions = activeTypeFilter === "all"
     ? visibleSessions
     : visibleSessions.filter(s => 
@@ -794,10 +781,14 @@ export default function PlannerPage() {
   const weakest = (() => {
     const mastery = profile?.mastery
     if (!mastery || Object.keys(mastery).length === 0) return "—"
+    const subjectKey = toApiSubject(selectedSubject)
+    const subjectTopics = subjectKey === "all"
+      ? new Set(Object.values(CHAPTERS_BY_SUBJECT).flat())
+      : new Set(CHAPTERS_BY_SUBJECT[subjectKey] ?? [])
     let minTopic = "—"
     let minScore = 2
     for (const [topic, info] of Object.entries(mastery)) {
-      if (info.score < minScore) {
+      if (subjectTopics.has(topic) && info.score < minScore) {
         minScore = info.score
         minTopic = topic
       }
@@ -817,7 +808,7 @@ export default function PlannerPage() {
     <AppShell>
       <div className="space-y-5">
 
-        {/* CHANGE 1: Subject dropdown checklist */}
+        {/* Subject dropdown checklist */}
         <div ref={dropdownRef} style={{ position: "relative", display: "inline-block" }}>
           <button
             onClick={() => setSubjectDropdownOpen(v => !v)}
@@ -863,26 +854,23 @@ export default function PlannerPage() {
           )}
         </div>
 
-        {/* ADDITION 2: Session type filter tabs */}
-        
-
         {/* Exam countdown banner */}
         {plan?.exam_countdown && (
-  <div className="flex items-center gap-3.5 px-5 py-3.5 bg-[#FFFBF0] border-2 border-[#1C1F3A] shadow-[4px_4px_0px_#C47C2B] rounded-none">
-    <div className="p-1.5 bg-[#C47C2B]/10 border border-[#C47C2B] flex items-center justify-center flex-shrink-0">
-      <Flame className="w-5 h-5 text-[#C47C2B] animate-pulse" />
-    </div>
-    
-    <div className="flex-1 font-mono text-xs leading-relaxed text-[#1C1F3A]">
-      <span className="font-extrabold uppercase tracking-wider text-[#C47C2B] bg-[#C47C2B]/15 px-2 py-0.5 border border-[#C47C2B]/30 mr-2 inline-block">
-        EXAM IN {plan.days_remaining} DAYS
-      </span>
-      <span className="font-bold text-[#1C1F3A]">
-        — Revision mode active. Only revision and mock sessions scheduled.
-      </span>
-    </div>
-  </div>
-)}
+          <div className="flex items-center gap-3.5 px-5 py-3.5 bg-[#FFFBF0] border-2 border-[#1C1F3A] shadow-[4px_4px_0px_#C47C2B] rounded-none">
+            <div className="p-1.5 bg-[#C47C2B]/10 border border-[#C47C2B] flex items-center justify-center flex-shrink-0">
+              <Flame className="w-5 h-5 text-[#C47C2B] animate-pulse" />
+            </div>
+            
+            <div className="flex-1 font-mono text-xs leading-relaxed text-[#1C1F3A]">
+              <span className="font-extrabold uppercase tracking-wider text-[#C47C2B] bg-[#C47C2B]/15 px-2 py-0.5 border border-[#C47C2B]/30 mr-2 inline-block">
+                EXAM IN {plan.days_remaining} DAYS
+              </span>
+              <span className="font-bold text-[#1C1F3A]">
+                — Revision mode active. Only revision and mock sessions scheduled.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Burnout warning */}
         {burnoutWarning && (
@@ -907,7 +895,6 @@ export default function PlannerPage() {
         {/* Header */}
         <div className="flex items-start justify-between animate-slide-right">
           <div>
-            
             <h1 className="font-serif font-black text-[2.2rem] text-[#1c1f3a] leading-none animate-[slide-right_0.5s_ease-out_0.2s_both]">Study Planner</h1>
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
@@ -918,22 +905,20 @@ export default function PlannerPage() {
               </button>
             )}
             <button 
-  onClick={() => {
-    const defaultSubject = selectedSubject === "all" ? "science" : selectedSubject
-    setPlanSubject(defaultSubject)
-    setPlanChapter(CHAPTERS_BY_SUBJECT[defaultSubject]?.[0] ?? "")
-    setPlanDays(3)
-    setPreferredSlots(["evening"])
-    setPlanError("")
-    setPlanModalOpen(true)
-  }}
-  className="inline-flex items-center gap-2 px-4 py-2 bg-[#F8FAFF] hover:bg-white text-[#1C1F3A] hover:text-[#4A6FA5] font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] hover:shadow-[4px_4px_0px_#4A6FA5] hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all duration-150 rounded-none cursor-pointer"
->
-  <Calendar className="w-4 h-4 text-[#4A6FA5]" />
-  <span>Plan a Chapter</span>
-</button>
-            
-            
+              onClick={() => {
+                const defaultSubject = selectedSubject === "all" ? activeSubject : selectedSubject
+                setPlanSubject(defaultSubject)
+                setPlanChapter(CHAPTERS_BY_SUBJECT[defaultSubject]?.[0] ?? "")
+                setPlanDays(3)
+                setPreferredSlots(["evening"])
+                setPlanError("")
+                setPlanModalOpen(true)
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[#F8FAFF] hover:bg-white text-[#1C1F3A] hover:text-[#4A6FA5] font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] hover:shadow-[4px_4px_0px_#4A6FA5] hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all duration-150 rounded-none cursor-pointer"
+            >
+              <Calendar className="w-4 h-4 text-[#4A6FA5]" />
+              <span>Plan a Chapter</span>
+            </button>
           </div>
         </div>
 
@@ -961,24 +946,24 @@ export default function PlannerPage() {
 
         {/* Filter tabs */}
         <div className="flex flex-wrap items-center gap-2">
-  {["all", "study", "practice", "revision", "mock", "break"].map((f) => {
-    const isActive = filter === f
-    return (
-      <button
-        key={f}
-        onClick={() => setFilter(f)}
-        className={cn(
-          "px-3.5 py-1.5 font-mono text-xs font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer rounded-none border-2",
-          isActive
-            ? "bg-[#4A6FA5] text-white border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] -translate-y-0.5"
-            : "bg-[#F8FAFF] text-[#1C1F3A]/60 border-[#1C1F3A]/20 hover:border-[#1C1F3A] hover:text-[#1C1F3A] hover:bg-white"
-        )}
-      >
-        {f}
-      </button>
-    )
-  })}
-</div>
+          {["all", "study", "practice", "revision", "mock", "break"].map((f) => {
+            const isActive = filter === f
+            return (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={cn(
+                  "px-3.5 py-1.5 font-mono text-xs font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer rounded-none border-2",
+                  isActive
+                    ? "bg-[#4A6FA5] text-white border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] -translate-y-0.5"
+                    : "bg-[#F8FAFF] text-[#1C1F3A]/60 border-[#1C1F3A]/20 hover:border-[#1C1F3A] hover:text-[#1C1F3A] hover:bg-white"
+                )}
+              >
+                {f}
+              </button>
+            )
+          })}
+        </div>
 
         {/* Burnout Check Warning Cards */}
         {burnoutWarnings
@@ -1014,30 +999,27 @@ export default function PlannerPage() {
 
         {/* Week navigation */}
         <div className="flex items-center justify-between p-2.5 bg-[#F8FAFF] border-2 border-[#1C1F3A] shadow-[3px_3px_0px_#1C1F3A] rounded-none">
-  {/* Previous Week Button */}
-  <button 
-    onClick={() => setWeekStart(d => addDays(d, -7))}
-    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#1C1F3A] text-[#1C1F3A] hover:text-white font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] active:translate-y-0.5 active:shadow-none transition-all duration-150 rounded-none cursor-pointer"
-  >
-    ← Prev Week
-  </button>
+          <button 
+            onClick={() => setWeekStart(d => addDays(d, -7))}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#1C1F3A] text-[#1C1F3A] hover:text-white font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] active:translate-y-0.5 active:shadow-none transition-all duration-150 rounded-none cursor-pointer"
+          >
+            ← Prev Week
+          </button>
 
-  {/* Date Range Badge */}
-  <div className="px-3.5 py-1.5 bg-white border-2 border-[#1C1F3A] font-mono text-xs font-bold text-[#1C1F3A] uppercase tracking-wider shadow-[2px_2px_0px_#4A6FA5]">
-    <span className="text-[#4A6FA5]">📅</span>{" "}
-    {weekStart.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-    <span className="text-[#4A6FA5] mx-1.5">–</span>
-    {addDays(weekStart, 6).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-  </div>
+          <div className="px-3.5 py-1.5 bg-white border-2 border-[#1C1F3A] font-mono text-xs font-bold text-[#1C1F3A] uppercase tracking-wider shadow-[2px_2px_0px_#4A6FA5]">
+            <span className="text-[#4A6FA5]">📅</span>{" "}
+            {weekStart.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+            <span className="text-[#4A6FA5] mx-1.5">–</span>
+            {addDays(weekStart, 6).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+          </div>
 
-  {/* Next Week Button */}
-  <button 
-    onClick={() => setWeekStart(d => addDays(d, 7))}
-    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#1C1F3A] text-[#1C1F3A] hover:text-white font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] active:translate-y-0.5 active:shadow-none transition-all duration-150 rounded-none cursor-pointer"
-  >
-    Next Week →
-  </button>
-</div>
+          <button 
+            onClick={() => setWeekStart(d => addDays(d, 7))}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#1C1F3A] text-[#1C1F3A] hover:text-white font-mono text-xs font-bold uppercase tracking-wider border-2 border-[#1C1F3A] shadow-[2px_2px_0px_#1C1F3A] active:translate-y-0.5 active:shadow-none transition-all duration-150 rounded-none cursor-pointer"
+          >
+            Next Week →
+          </button>
+        </div>
 
         {/* Calendar grid */}
         {loading ? (
@@ -1055,7 +1037,7 @@ export default function PlannerPage() {
               <p className="font-mono text-xs text-[rgba(28,31,58,0.6)] mb-6 uppercase tracking-wider">Click &quot;Plan a Chapter&quot; to create your first session.</p>
               <button
                 onClick={() => {
-                  const defaultSubject = selectedSubject === "all" ? "science" : selectedSubject
+                  const defaultSubject = selectedSubject === "all" ? activeSubject : selectedSubject
                   setPlanSubject(defaultSubject)
                   setPlanChapter(CHAPTERS_BY_SUBJECT[defaultSubject]?.[0] ?? "")
                   setPlanDays(3)
@@ -1070,7 +1052,7 @@ export default function PlannerPage() {
             </div>
           </div>
         ) : (
-          <div className="desk-planner" style={{ animationDelay: "0.4s" }}>
+          <div className="desk-planner">
             {/* Day headers */}
             <div className="grid grid-cols-7 border-b-2 border-[#1c1f3a] bg-[#1c1f3a] text-[#fdfcf9]">
               {weekDays.map((d, index) => {
@@ -1080,7 +1062,7 @@ export default function PlannerPage() {
                     className={cn(
                       "px-2 py-3 border-r-2 border-[#1c1f3a] last:border-r-0 text-center relative",
                       isToday ? "bg-[#c0392b]" : "",
-                      index === 0 ? "pl-8" : "" // Extra padding for left spine
+                      index === 0 ? "pl-2" : ""
                     )}>
                     <p className="font-mono text-[10px] text-[rgba(253,252,249,0.7)] uppercase tracking-wider font-bold">
                       {d.toLocaleDateString("en-IN", { weekday: "short" })}
@@ -1095,23 +1077,22 @@ export default function PlannerPage() {
 
             {/* Session chips */}
             <div className="grid grid-cols-7 min-h-[300px]">
-              {weekDays.map((d, index) => {
+              {weekDays.map((d) => {
                 const key = isoDate(d)
                 const daySessions = byDate[key] ?? []
                 return (
-                  <div key={key}
-                    className={cn(
-                      "border-r-2 border-[#1c1f3a] last:border-r-0 p-2 min-h-[300px] align-top relative",
-                      index === 0 ? "pl-8" : "" // Extra padding after spine
-                    )}
-                    style={{ backgroundImage: 'repeating-linear-gradient(transparent, transparent 31px, rgba(28,31,58,0.1) 31px, rgba(28,31,58,0.1) 32px)', backgroundPositionY: '12px' }}>
-                    {daySessions.length === 0 ? (
-                      <p className="font-mono text-[10px] text-[rgba(28,31,58,0.30)] text-center mt-6 italic font-bold">Free day</p>
-                    ) : (
-                      daySessions.map(s => (
-                        <SessionChip key={s.id} s={s} onClick={() => setSelected(s)} onComplete={handleMarkComplete} onDelete={handleDelete} confirmDeleteId={confirmDeleteId} setConfirmDeleteId={setConfirmDeleteId} />
-                      ))
-                    )}
+                  <div key={key} className="p-2 border-r-2 border-[#1c1f3a] last:border-r-0 bg-[#fdfcf9]/50 min-h-[150px]">
+                    {daySessions.map((s) => (
+                      <SessionChip
+                        key={s.id}
+                        s={s}
+                        onClick={() => setSelected(s)}
+                        onComplete={handleMarkComplete}
+                        onDelete={handleDelete}
+                        confirmDeleteId={confirmDeleteId}
+                        setConfirmDeleteId={setConfirmDeleteId}
+                      />
+                    ))}
                   </div>
                 )
               })}

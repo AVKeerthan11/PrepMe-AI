@@ -1447,8 +1447,6 @@ function QuizPageInner() {
           method: "POST",
           body: JSON.stringify({ subject: activeSubject, topic: currentTopic, score: finalScore }),
         })
-        // Trigger planner regeneration in the background so schedule reflects new mastery
-        authFetch("/api/planner/regenerate", { method: "POST" }).catch(() => {})
         setPhase("results")
         await refreshProfile()
       }
@@ -1479,8 +1477,6 @@ function QuizPageInner() {
         method: "POST",
         body: JSON.stringify({ subject, topic: config.topic, score: finalScore }),
       })
-      // Trigger planner regeneration in the background so schedule reflects new mastery
-      authFetch("/api/planner/regenerate", { method: "POST" }).catch(() => {})
       setPhase("results")
       await refreshProfile()
       return

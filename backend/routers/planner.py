@@ -84,6 +84,7 @@ ENGLISH_TOPICS = [
 ENGLISH_WEIGHTAGE = {t: round(1 / len(ENGLISH_TOPICS), 3) for t in ENGLISH_TOPICS}
 
 SESSION_MINUTES = 45
+PLANNER_SUBJECTS = ("science", "maths", "social", "english")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -192,13 +193,12 @@ def _priority(mastery: float, weight: float, days: int) -> float:
     return round((1 - mastery) * weight * (1 + 1 / max(days, 1)), 4)
 
 
-def _session_type(mastery: float, quiz_attempts: int = 0) -> str:
-    if quiz_attempts == 0 or mastery < 0.4:
+def _session_type(mastery: float, quiz_attempts: int = 0, quiz_accuracy: Optional[float] = None) -> str:
+    if quiz_attempts == 0:
         return "study"
-    elif mastery < 0.7:
+    if quiz_accuracy is not None and quiz_accuracy < 0.6:
         return "practice"
-    else:
-        return "revision"
+    return "revision"
 
 
 def _micro_goals(session_type: str, topic: str) -> List[str]:
@@ -342,7 +342,15 @@ async def _session_exists_on_date(
 
 async def _ensure_mastery_for_subject(db: AsyncSession, user: User, subject: Optional[str] = None) -> List[MasteryScore]:
     """Seed missing topic mastery at 0.5 for the active subject, then return subject scores."""
-    weightage = _weightage_for_subject(subject) if subject is not None else _weightage_for(user)
+    normalized_subject = _normalize_subject(subject)
+    if normalized_subject == "all":
+        weightage = {
+            topic: weight
+            for subject_key in PLANNER_SUBJECTS
+            for topic, weight in _weightage_for_subject(subject_key).items()
+        }
+    else:
+        weightage = _weightage_for_subject(subject) if subject is not None else _weightage_for(user)
     scores = await get_mastery_scores_by_user(db, user.id)
     existing_topics = {s.topic for s in scores}
 
@@ -352,7 +360,110 @@ async def _ensure_mastery_for_subject(db: AsyncSession, user: User, subject: Opt
 
     await db.flush()
     scores = await get_mastery_scores_by_user(db, user.id)
-    return _filter_scores_for_subject(scores, user)
+    return _filter_scores_for_subject(scores, user, subject)
+
+
+async def _build_balanced_multi_subject_sessions(
+    db: AsyncSession, user: User, scores: list
+) -> List[StudySession]:
+    """Build one global queue so every subject gets a slot before any repeats."""
+    today = datetime.date.today()
+    exam_date = _exam_date(user)
+    available_days = [
+        today + datetime.timedelta(days=offset)
+        for offset in range((exam_date - today).days)
+    ]
+    if not available_days:
+        return []
+
+    total_daily_minutes = int((user.daily_hours if user.daily_hours is not None else 2.0) * 60)
+    if total_daily_minutes < SESSION_MINUTES:
+        return []
+    exam_urgency = 1.0 / max((exam_date - today).days, 1)
+    attempt_counts = await _get_quiz_attempt_counts(db, user.id)
+    quiz_accuracy = await _get_quiz_accuracy_per_topic(db, user.id)
+
+    score_by_topic = {score.topic: score for score in scores}
+    queues: Dict[str, List[tuple]] = {}
+    weights: Dict[str, float] = {}
+    allocation_minutes: Dict[str, float] = {}
+    scheduled_per_subject: Dict[str, int] = {key: 0 for key in PLANNER_SUBJECTS}
+    for subject_key in PLANNER_SUBJECTS:
+        topic_scores = [
+            score_by_topic[topic]
+            for topic in _weightage_for_subject(subject_key)
+            if topic in score_by_topic
+        ]
+        if not topic_scores:
+            continue
+        average_mastery = sum(item.score for item in topic_scores) / len(topic_scores)
+        weights[subject_key] = (1.0 - average_mastery) + exam_urgency
+        candidates = []
+        for item in topic_scores:
+            accuracy = quiz_accuracy.get(item.topic)
+            priority = (1.0 - item.score) * _weightage_for_subject(subject_key).get(item.topic, 0.08)
+            if accuracy is not None:
+                priority *= 1.5 - accuracy
+            candidates.append((item.topic, item.score, round(priority, 4), _session_type(item.score, attempt_counts.get(item.topic, 0), accuracy)))
+        queues[subject_key] = sorted(candidates, key=lambda entry: (entry[2], -entry[1]), reverse=True)
+
+    # Start from an equal per-subject base, then scale it by each subject's
+    # urgency weight. The weighted totals still add up to the daily budget.
+    active_subjects = list(queues)
+    base_minutes = total_daily_minutes / max(len(active_subjects), 1)
+    average_weight = sum(weights.values()) / max(len(weights), 1)
+    allocation_minutes = {
+        key: base_minutes * (weights[key] / average_weight)
+        for key in active_subjects
+    }
+
+    existing_result = await db.execute(
+        select(StudySession).where(StudySession.user_id == user.id, StudySession.date >= today)
+    )
+    daily_minutes: Dict[datetime.date, int] = {}
+    daily_counts: Dict[datetime.date, int] = {}
+    for session in existing_result.scalars().all():
+        daily_minutes[session.date] = daily_minutes.get(session.date, 0) + session.planned_minutes
+        daily_counts[session.date] = daily_counts.get(session.date, 0) + 1
+
+    sessions: List[StudySession] = []
+    cycle_seen: Set[str] = set()
+    local_scheduled: Dict[datetime.date, Set[str]] = {}
+    for day in available_days:
+        while daily_minutes.get(day, 0) + SESSION_MINUTES <= total_daily_minutes:
+            eligible = [key for key, queue in queues.items() if queue]
+            if not eligible:
+                await db.flush()
+                return sessions
+            unseen = [key for key in eligible if key not in cycle_seen]
+            if unseen:
+                subject_key = max(unseen, key=lambda key: allocation_minutes[key])
+            else:
+                cycle_seen.clear()
+                subject_key = max(
+                    eligible,
+                    key=lambda key: allocation_minutes[key] - scheduled_per_subject[key] * SESSION_MINUTES,
+                )
+            topic, mastery, priority, session_type = queues[subject_key].pop(0)
+            if await _session_exists_on_date(db, user, topic, day, local_scheduled):
+                continue
+            day_count = daily_counts.get(day, 0)
+            session = StudySession(
+                id=uuid.uuid4(), user_id=user.id, subject=subject_key, chapter=topic,
+                date=day, hour_start=min(23, 18 + day_count), topic=topic,
+                planned_minutes=SESSION_MINUTES, session_type=session_type, status="pending",
+                priority_score=priority, mastery_at_schedule=mastery,
+                micro_goals=json.dumps(normalize_goals(_micro_goals(session_type, topic))),
+            )
+            db.add(session)
+            sessions.append(session)
+            local_scheduled.setdefault(day, set()).add(topic)
+            daily_minutes[day] = daily_minutes.get(day, 0) + SESSION_MINUTES
+            daily_counts[day] = day_count + 1
+            scheduled_per_subject[subject_key] += 1
+            cycle_seen.add(subject_key)
+    await db.flush()
+    return sessions
 
 
 async def _topic_has_pending_sessions(
@@ -415,6 +526,9 @@ async def _build_and_save_sessions(
     today = datetime.date.today()
     exam_date = _exam_date(user)
 
+    if _normalize_subject(subject) == "all":
+        return await _build_balanced_multi_subject_sessions(db, user, scores)
+
     # Build list of schedulable dates — strictly BEFORE exam day
     available_days: List[datetime.date] = []
     cursor = today
@@ -431,6 +545,19 @@ async def _build_and_save_sessions(
     weightage = _weightage_for_subject(subject) if subject is not None else _weightage_for(user)
     max_per_day = _max_sessions_per_day(user)
     max_minutes = _max_minutes_per_day(user)
+
+    # A subject with no completed work must still receive Phase 1 study
+    # sessions during the final week. Mastery records are seeded at 0.5, so
+    # sessions_done is the reliable signal that a topic was actually completed.
+    subject_topics = _subject_topics(user, subject)
+    completed_topics_query = select(func.count(MasteryScore.id)).where(
+        MasteryScore.user_id == user.id,
+        MasteryScore.topic.in_(subject_topics),
+        MasteryScore.sessions_done > 0,
+    )
+    completed_topics_count = (await db.execute(completed_topics_query)).scalar() or 0
+    days_until_exam = (exam_date - today).days
+    is_revision_mode = days_until_exam <= 7 and completed_topics_count > 0
 
     # ── Ensure mastery records exist ───────────────────────────────────────────
     scores = _filter_scores_for_subject(scores, user, subject)
@@ -459,7 +586,7 @@ async def _build_and_save_sessions(
         quiz_factor = (1.5 - acc) if acc is not None else 1.0
 
         priority = round((1.0 - mastery) * w * urgency * quiz_factor, 4)
-        stype = _session_type(mastery, attempts)
+        stype = _session_type(mastery, attempts, acc)
         sorted_topics.append((s.topic, mastery, priority, stype))
 
     # Primary sort: highest priority first.
@@ -472,14 +599,32 @@ async def _build_and_save_sessions(
     sessions: List[StudySession] = []
     local_scheduled: Dict[datetime.date, Set[str]] = {}
 
+    # ── Track global daily load across ALL subjects ─────────────────────────────
+    # Query every existing session for this user from today onwards so that
+    # daily limits account for sessions already scheduled by other subjects.
+    existing_result = await db.execute(
+        select(StudySession).where(
+            StudySession.user_id == user.id,
+            StudySession.date >= today,
+        )
+    )
+    existing_sessions = list(existing_result.scalars().all())
+
+    daily_minutes_map: Dict[datetime.date, int] = {}
+    daily_count_map: Dict[datetime.date, int] = {}
+    for es in existing_sessions:
+        daily_minutes_map[es.date] = daily_minutes_map.get(es.date, 0) + es.planned_minutes
+        daily_count_map[es.date] = daily_count_map.get(es.date, 0) + 1
+
     # ── Phase 1: schedule study topics across days ─────────────────────────────
     topic_index = 0
     for day in available_days:
         if topic_index >= len(sorted_topics):
             break
 
-        day_minutes = 0
-        day_count = 0
+        # Initialize from global tracking maps (accounts for other subjects)
+        day_minutes = daily_minutes_map.get(day, 0)
+        day_count = daily_count_map.get(day, 0)
 
         while topic_index < len(sorted_topics):
             # Enforce per-day minute and session caps
@@ -495,6 +640,9 @@ async def _build_and_save_sessions(
                 topic_index += 1
                 continue
 
+            # Dynamic hour: stagger sessions based on how many are already on this day
+            dynamic_hour = min(23, 18 + day_count)
+
             goals = normalize_goals(_micro_goals(stype, topic))
             sess = StudySession(
                 id=uuid.uuid4(),
@@ -502,7 +650,7 @@ async def _build_and_save_sessions(
                 subject=_normalize_subject(subject if subject is not None else user.subject),
                 chapter=topic,
                 date=day,
-                hour_start=18,
+                hour_start=dynamic_hour,
                 topic=topic,
                 planned_minutes=SESSION_MINUTES,
                 session_type=stype,
@@ -518,6 +666,10 @@ async def _build_and_save_sessions(
             day_count += 1
             day_minutes += SESSION_MINUTES
 
+            # Keep global tracking maps in sync
+            daily_count_map[day] = day_count
+            daily_minutes_map[day] = day_minutes
+
     # ── Phase 2: fill spare days when topics < available days ──────────────────
     # Identify days that have no sessions assigned yet
     days_used: Set[datetime.date] = {s.date for s in sessions}
@@ -527,7 +679,7 @@ async def _build_and_save_sessions(
         # Collect weak topics (mastery < 0.5) for revision filler
         weak_topics = [(t, m, p, st) for t, m, p, st in sorted_topics if m < 0.5]
         # If fewer weak topics than spare days, cycle through all topics
-        filler_pool = weak_topics if weak_topics else sorted_topics
+        filler_pool = weak_topics if is_revision_mode and weak_topics else sorted_topics
 
         # Determine if a mock test day should be inserted:
         # Insert one mock day if there are 7+ available days and exam date is far enough
@@ -535,6 +687,14 @@ async def _build_and_save_sessions(
         mock_threshold_day = exam_date - datetime.timedelta(days=3)
 
         for idx, day in enumerate(spare_days):
+            # Enforce daily limits for Phase 2 fillers too
+            filler_day_minutes = daily_minutes_map.get(day, 0)
+            filler_day_count = daily_count_map.get(day, 0)
+            if filler_day_minutes + SESSION_MINUTES > max_minutes:
+                continue
+            if filler_day_count >= max_per_day:
+                continue
+
             # Reserve the last spare day before exam (within 3 days) for full revision
             days_to_exam = (exam_date - day).days
 
@@ -574,13 +734,16 @@ async def _build_and_save_sessions(
                 filler_priority = round((1.0 - filler_m) * urgency, 4)
                 filler_mastery = filler_m
 
+            # Dynamic hour: stagger based on existing sessions for this day
+            filler_dynamic_hour = min(23, 18 + filler_day_count)
+
             filler_sess = StudySession(
                 id=uuid.uuid4(),
                 user_id=user.id,
                 subject=_normalize_subject(subject if subject is not None else user.subject),
                 chapter=filler_topic,
                 date=day,
-                hour_start=18,
+                hour_start=filler_dynamic_hour,
                 topic=filler_topic,
                 planned_minutes=SESSION_MINUTES,
                 session_type=filler_stype,
@@ -592,6 +755,10 @@ async def _build_and_save_sessions(
             db.add(filler_sess)
             sessions.append(filler_sess)
             local_scheduled.setdefault(day, set()).add(filler_topic)
+
+            # Keep global tracking maps in sync
+            daily_count_map[day] = daily_count_map.get(day, 0) + 1
+            daily_minutes_map[day] = daily_minutes_map.get(day, 0) + SESSION_MINUTES
 
     await db.flush()
     return sessions
@@ -631,11 +798,12 @@ async def get_plan(
         scores = await get_mastery_scores_by_user(db, user.id)
         mastery_map = {s.topic: s.score for s in scores}
         attempt_counts = await _get_quiz_attempt_counts(db, user.id)
+        quiz_accuracy = await _get_quiz_accuracy_per_topic(db, user.id)
         for sess in sessions:
             if sess.status == "pending":
                 m = mastery_map.get(sess.topic, 0.5)
                 a = attempt_counts.get(sess.topic, 0)
-                new_type = _session_type(m, a)
+                new_type = _session_type(m, a, quiz_accuracy.get(sess.topic))
                 if sess.session_type != new_type:
                     sess.session_type = new_type
         await db.flush()
@@ -742,9 +910,8 @@ async def generate_session(
 
         if user.exam_date and candidate_date >= user.exam_date:
             if len(sessions) == 0:
-                raise HTTPException(status_code=400, detail="Your schedule is completely full before the exam. Cannot fit this chapter.")
-            else:
-                break
+                raise HTTPException(status_code=400, detail="Schedule full before exam.")
+            break
 
         existing_same_day = await db.execute(
             select(StudySession.id).where(
@@ -1043,7 +1210,8 @@ async def study_now(
         )
 
     attempt_counts = await _get_quiz_attempt_counts(db, user.id)
-    stype = _session_type(best.score, attempt_counts.get(best.topic, 0))
+    quiz_accuracy = await _get_quiz_accuracy_per_topic(db, user.id)
+    stype = _session_type(best.score, attempt_counts.get(best.topic, 0), quiz_accuracy.get(best.topic))
 
     return {
         "topic": best.topic,
@@ -1064,7 +1232,10 @@ async def regenerate_plan(
     db: AsyncSession = Depends(get_db),
 ):
     today = datetime.date.today()
-    active_subject = _normalize_subject(subject or user.subject)
+    # A planner regeneration rebuilds the shared daily queue. A supplied
+    # subject remains useful for scoped maintenance, while the normal path
+    # deliberately includes every supported subject.
+    active_subject = _normalize_subject(subject) if subject is not None else "all"
 
     # Delete ALL future pending sessions for this user (full rebuild)
     result = await db.execute(
@@ -1078,7 +1249,7 @@ async def regenerate_plan(
         await db.delete(s)
     await db.flush()
 
-    scores = await _ensure_mastery_for_subject(db, user, active_subject if active_subject != "all" else None)
+    scores = await _ensure_mastery_for_subject(db, user, active_subject)
     if not scores:
         return {
             "sessions": [],
@@ -1089,8 +1260,9 @@ async def regenerate_plan(
 
     sessions = await _build_and_save_sessions(
         db, user, scores,
-        subject=active_subject if active_subject != "all" else None
+        subject=active_subject
     )
+    await db.commit()
     days = _days_left(user)
 
     return {
@@ -1260,48 +1432,79 @@ async def burnout_check(
 
 # ── Reactive scheduling helper (called from profile router) ───────────────────
 
-async def ensure_revision_session(
-    db: AsyncSession, user: User, topic: str, mastery: float
-):
-    """If mastery < 0.6, ensure a revision session exists within the next 2 days."""
-    if mastery >= 0.6:
-        return
-
-    if topic not in _subject_topics(user):
-        return
+async def ensure_quiz_followup_session(
+    db: AsyncSession, user: User, topic: str, score: float, subject: Optional[str] = None
+) -> None:
+    """Persist the practice/revision session produced by a completed chapter quiz."""
+    subject_key = _normalize_subject(subject)
+    if topic not in _subject_topics(user, subject_key):
+        for candidate in PLANNER_SUBJECTS:
+            if topic in _subject_topics(user, candidate):
+                subject_key = candidate
+                break
+        else:
+            return
 
     today = datetime.date.today()
-    window_end = today + datetime.timedelta(days=2)
+    if score >= 0.6:
+        result = await db.execute(
+            select(StudySession).where(
+                StudySession.user_id == user.id,
+                StudySession.topic == topic,
+                StudySession.session_type == "study",
+                StudySession.status == "pending",
+            )
+        )
+        for study_session in result.scalars().all():
+            study_session.status = "done"
+            study_session.actual_minutes = study_session.planned_minutes
 
-    result = await db.execute(
+    session_type = "practice" if score < 0.6 else "revision"
+    window_end = today + datetime.timedelta(days=2)
+    existing = await db.execute(
         select(StudySession.id).where(
             StudySession.user_id == user.id,
             StudySession.topic == topic,
+            StudySession.session_type == session_type,
+            StudySession.status == "pending",
             StudySession.date >= today,
             StudySession.date <= window_end,
         ).limit(1)
     )
-    if result.scalar_one_or_none():
+    if existing.scalar_one_or_none() is not None:
         return
 
-    target_date = today + datetime.timedelta(days=1)
-    weightage = _weightage_for(user)
-    days = _days_left(user)
-    priority = _priority(mastery, weightage.get(topic, 0.08), days)
-    goals = normalize_goals(_micro_goals("revision", topic))
+    total_daily_minutes = int((user.daily_hours if user.daily_hours is not None else 2.0) * 60)
+    candidate_dates = [today, today + datetime.timedelta(days=1), today + datetime.timedelta(days=2)]
+    for candidate_date in candidate_dates:
+        if user.exam_date and candidate_date >= user.exam_date:
+            break
+        load = await db.execute(
+            select(StudySession.planned_minutes).where(
+                StudySession.user_id == user.id,
+                StudySession.date == candidate_date,
+            )
+        )
+        planned_minutes = sum(row[0] for row in load.fetchall())
+        if planned_minutes + SESSION_MINUTES > total_daily_minutes:
+            continue
+        count = await _count_sessions_for_date(db, user.id, candidate_date)
+        priority = _priority(score, _weightage_for_subject(subject_key).get(topic, 0.08), _days_left(user))
+        followup = StudySession(
+            id=uuid.uuid4(), user_id=user.id, subject=subject_key, chapter=topic,
+            date=candidate_date, hour_start=min(23, 18 + count), topic=topic,
+            planned_minutes=SESSION_MINUTES, session_type=session_type, status="pending",
+            priority_score=priority, mastery_at_schedule=score,
+            micro_goals=json.dumps(normalize_goals(_micro_goals(session_type, topic))),
+        )
+        db.add(followup)
+        await db.flush()
+        return
 
-    sess = StudySession(
-        id=uuid.uuid4(),
-        user_id=user.id,
-        date=target_date,
-        topic=topic,
-        planned_minutes=SESSION_MINUTES,
-        session_type="revision",
-        status="pending",
-        priority_score=priority,
-        mastery_at_schedule=mastery,
-        micro_goals=json.dumps(goals),
-    )
-    db.add(sess)
-    await db.flush()
-    print(f"[planner] reactive session inserted for topic={topic} date={target_date}")
+
+async def ensure_revision_session(
+    db: AsyncSession, user: User, topic: str, mastery: float
+):
+    """Backward-compatible wrapper for older callers."""
+    if mastery < 0.6:
+        await ensure_quiz_followup_session(db, user, topic, mastery, user.subject)

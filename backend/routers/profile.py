@@ -11,13 +11,22 @@ from db.database import get_db
 from db.models import User, MasteryScore
 from db.crud import get_mastery_scores_by_user, upsert_mastery_score
 from routers.deps import get_current_user
-from routers.planner import SCIENCE_WEIGHTAGE, MATHS_WEIGHTAGE
+from routers.planner import (
+    SCIENCE_WEIGHTAGE, MATHS_WEIGHTAGE, SOCIAL_WEIGHTAGE, ENGLISH_WEIGHTAGE,
+    _normalize_subject,
+)
 
 router = APIRouter(prefix="/api/profile", tags=["Profile"])
 
 
 def _subject_topics(subject: str) -> set:
-    w = SCIENCE_WEIGHTAGE if subject == "science" else MATHS_WEIGHTAGE
+    weightages = {
+        "science": SCIENCE_WEIGHTAGE,
+        "maths": MATHS_WEIGHTAGE,
+        "social": SOCIAL_WEIGHTAGE,
+        "english": ENGLISH_WEIGHTAGE,
+    }
+    w = weightages[_normalize_subject(subject)]
     return set(w.keys())
 
 
@@ -45,7 +54,12 @@ def _days_to_exam(user: User) -> int:
 
 def _mastery_dict(scores: list, subject: str) -> dict:
     topics = _subject_topics(subject)
-    weightage = SCIENCE_WEIGHTAGE if subject == "science" else MATHS_WEIGHTAGE
+    weightage = {
+        "science": SCIENCE_WEIGHTAGE,
+        "maths": MATHS_WEIGHTAGE,
+        "social": SOCIAL_WEIGHTAGE,
+        "english": ENGLISH_WEIGHTAGE,
+    }[_normalize_subject(subject)]
     by_topic = {s.topic: s for s in scores if s.topic in topics}
     result = {}
     for topic in weightage:
@@ -93,10 +107,11 @@ async def update_profile(
     schedule_changed = False
     if body.name is not None:
         user.name = body.name
-    if body.subject is not None and body.subject in ("science", "maths"):
-        if user.subject != body.subject:
+    if body.subject is not None:
+        normalized_subject = _normalize_subject(body.subject)
+        if user.subject != normalized_subject:
             schedule_changed = True
-        user.subject = body.subject
+        user.subject = normalized_subject
     if body.exam_date is not None:
         new_date = datetime.date.fromisoformat(body.exam_date)
         if user.exam_date != new_date:
@@ -127,9 +142,9 @@ async def update_profile(
             await db.flush()
 
             from routers.planner import _ensure_mastery_for_subject, _build_and_save_sessions
-            scores = await _ensure_mastery_for_subject(db, user, None)
+            scores = await _ensure_mastery_for_subject(db, user, "all")
             if scores:
-                await _build_and_save_sessions(db, user, scores)
+                await _build_and_save_sessions(db, user, scores, subject="all")
         except Exception as e:
             print(f"[profile] auto-regenerate planner failed: {e}")
 
@@ -157,13 +172,16 @@ async def update_mastery(
         new_score = max(0.1, min(1.0, new_score))
 
     updated = await upsert_mastery_score(db, user.id, body.topic, new_score, old_sessions + 1)
-    if updated.last_tested is None:
-        updated.last_tested = datetime.date.today()
-        await db.flush()
+    updated.last_tested = datetime.date.today()
 
-    if new_score < 0.6:
-        from routers.planner import ensure_revision_session
-        await ensure_revision_session(db, user, body.topic, new_score)
+    # The quiz UI posts its completed chapter score here. Keep the resulting
+    # planner action in the same transaction as the mastery update so it
+    # survives a refresh and cannot be lost between API calls.
+    from routers.planner import ensure_quiz_followup_session
+    await ensure_quiz_followup_session(
+        db, user, body.topic, new_score, body.subject or user.subject
+    )
+    await db.commit()
 
     return {"topic": body.topic, "score": new_score, "sessions_done": old_sessions + 1}
 

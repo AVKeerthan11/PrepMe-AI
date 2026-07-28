@@ -258,6 +258,22 @@ This endpoint already:
 
 1. **Backend Denominator Calculation (`backend/routers/profile.py`)**:
    - `total_topics` was previously set to `len(subject_scores)` (the number of topics attempted by the user in that subject), which caused denominators to display values like `1 / 1 TOPICS COVERED`.
+
+---
+
+## Phase 6: Planner Subject Tab Synchronization
+
+### Findings
+
+- `frontend/app/planner/page.tsx` was fetching planner sessions from a local subject state that could remain stuck on `All Subjects` even after the global subject tab changed.
+- The planner dropdown now resets from the active auth/profile subject on tab switches, and the planner fetch effect now re-runs with the active subject in its dependency chain.
+
+### Implementation
+
+- Bound the planner's default subject to `profile.subject` via `normalizeSubject(...)`.
+- Updated the planner fetch URL to use the current local subject selection, which is re-synced whenever the global subject changes.
+- Reset the planner's dropdown label/value to the active subject whenever the top-level subject tab changes.
+- Preserved the existing backend API contract and left backend planner filtering untouched.
    - Fixed by calculating `total = len(chapters)` using `SUBJECT_CHAPTERS` (the total number of chapters/topics in the subject syllabus).
    - Updated the progress percentage formula to `round((covered / total) * 100)`.
 
@@ -266,4 +282,77 @@ This endpoint already:
    - Updated the rendering `.map()` to iterate explicitly over all four core subjects: `['Science', 'Mathematics', 'Social Studies', 'English']`.
    - Added zero-value fallbacks (`percent || 0`, `covered || 0`, `total || meta.chapters`) to safely render subjects with 0 topics covered.
 
+---
+
+## Phase 7: Daily Limit Enforcement, Dynamic Hours & Subject Synchronization
+
+### Findings
+
+#### Backend (`backend/routers/planner.py`)
+
+1. **Global Limit Bypass**: In `_build_and_save_sessions()`, the variables `day_minutes` and `day_count` were reset to `0` on every day iteration (Phase 1, line ~481). If the user already had sessions scheduled for that day from other subjects, those sessions were ignored, causing the daily hour limit to effectively multiply across subjects (e.g., a 3-hour limit became 12 hours when 4 subjects each scheduled independently).
+
+2. **Hardcoded Overlaps**: Every session created in both Phase 1 and Phase 2 had `hour_start=18` hardcoded. This caused all sessions on a given day to visually stack on top of each other at 6 PM in the calendar rather than flowing sequentially.
+
+#### Frontend (`frontend/app/planner/page.tsx`)
+
+3. **Subject Key Mismatch**: The `toApiSubject()` function mapped `"maths"` → `"mathematics"`, but the backend `_normalize_subject()` returns `"maths"`. This caused the GET `/api/planner/?subject=mathematics` request to not match any sessions in the backend, making Mathematics (and by extension other subjects with similar mismatches) appear empty.
+
+4. **Plan-a-Chapter Not Persisting**: After successfully generating sessions via `handleGeneratePlan`, sessions were appended to local state but no re-fetch from the backend occurred. If the user switched tabs and returned, the local state was replaced by a fresh fetch, losing the newly planned sessions.
+
+### Implementation: COMPLETED
+
+#### Files Modified
+
+| File | What Changed |
+|------|-------------|
+| `backend/routers/planner.py` | Global daily load tracking, dynamic `hour_start`, Phase 2 limit enforcement |
+| `frontend/app/planner/page.tsx` | Fixed `toApiSubject` mapping, added `fetchPlan()` after plan generation |
+
+#### Backend Changes (`_build_and_save_sessions()`)
+
+1. **Global Daily Load Tracking**: Before the Phase 1 scheduling loop, query ALL existing `StudySession` records for `user.id` from today onwards. Build two tracking dictionaries:
+   - `daily_minutes_map: Dict[date, int]` — total `planned_minutes` per date
+   - `daily_count_map: Dict[date, int]` — total session count per date
+
+2. **Phase 1 — Initialize from Maps**: Replace `day_minutes = 0` / `day_count = 0` with:
+   ```python
+   day_minutes = daily_minutes_map.get(day, 0)
+   day_count = daily_count_map.get(day, 0)
+   ```
+
+3. **Phase 1 — Dynamic Hours**: Replace `hour_start=18` with:
+   ```python
+   dynamic_hour = min(23, 18 + day_count)
+   ```
+
+4. **Phase 1 — Update Maps After Add**: After each `db.add(sess)`, update both maps:
+   ```python
+   daily_count_map[day] = day_count
+   daily_minutes_map[day] = day_minutes
+   ```
+
+5. **Phase 2 — Limit Enforcement**: Before creating each filler session, check:
+   ```python
+   if filler_day_minutes + SESSION_MINUTES > max_minutes: continue
+   if filler_day_count >= max_per_day: continue
+   ```
+
+6. **Phase 2 — Dynamic Hours + Map Updates**: Same dynamic hour calculation and map updates as Phase 1.
+
+#### Frontend Changes
+
+1. **`toApiSubject()` fix**: Changed return value from `"mathematics"` to `"maths"` to match backend `_normalize_subject()`.
+
+2. **`handleGeneratePlan()` persistence**: Added `await fetchPlan()` after `setPlanModalOpen(false)` to re-sync state from backend, ensuring planned sessions persist across tab switches.
+
+### Verification
+
+- [x] Daily limits now respect cross-subject sessions (global tracking maps)
+- [x] `hour_start` values are staggered (18, 19, 20, …) instead of all 18
+- [x] Phase 2 fillers also respect daily limits and use dynamic hours
+- [x] `toApiSubject("maths")` returns `"maths"` matching backend
+- [x] Plan-a-chapter sessions persist after tab switching via immediate re-fetch
+- [x] No database schema changes
+- [x] No API contract changes
 
