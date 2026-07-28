@@ -3,25 +3,25 @@ export type AppSubject = "science" | "maths" | "social" | "english"
 export type ApiSubject = "science" | "maths" | "social_studies" | "english"
 
 export const SUBJECT_TABS: { id: AppSubject; label: string; accent: string }[] = [
-  { id: "science", label: "SCIENCE", accent: "#4A6FA5" },
-  { id: "maths", label: "MATHS", accent: "#4A6FA5" },
-  { id: "social", label: "SOCIAL STUDIES", accent: "#e07b39" },
-  { id: "english", label: "ENGLISH", accent: "#5e2b97" },
+  { id: "science", label: "SCIENCE", accent: "#E6B800" },      // Yellow
+  { id: "maths", label: "MATHS", accent: "#4A6FA5" },          // Blue
+  { id: "social", label: "SOCIAL STUDIES", accent: "#E05252" }, // Red
+  { id: "english", label: "ENGLISH", accent: "#8B5CF6" },      // Violet
 ]
 
 export const SUBJECT_PROGRESS_META: Record<
   string,
   { label: string; chapters: number; color: string }
 > = {
-  Science: { label: "SCIENCE", chapters: 15, color: "#2d6a4f" },
-  Mathematics: { label: "MATHEMATICS", chapters: 14, color: "#1d3557" },
-  science: { label: "SCIENCE", chapters: 15, color: "#2d6a4f" },
-  maths: { label: "MATHEMATICS", chapters: 14, color: "#1d3557" },
-  social: { label: "SOCIAL STUDIES", chapters: 20, color: "#e07b39" },
-  social_studies: { label: "SOCIAL STUDIES", chapters: 20, color: "#e07b39" },
-  english: { label: "ENGLISH", chapters: 12, color: "#5e2b97" },
-  "Social Studies": { label: "SOCIAL STUDIES", chapters: 20, color: "#e07b39" },
-  English: { label: "ENGLISH", chapters: 12, color: "#5e2b97" },
+  Science: { label: "SCIENCE", chapters: 15, color: "#E6B800" },
+  Mathematics: { label: "MATHEMATICS", chapters: 14, color: "#4A6FA5" },
+  science: { label: "SCIENCE", chapters: 15, color: "#E6B800" },
+  maths: { label: "MATHEMATICS", chapters: 14, color: "#4A6FA5" },
+  social: { label: "SOCIAL STUDIES", chapters: 20, color: "#E05252" },
+  social_studies: { label: "SOCIAL STUDIES", chapters: 20, color: "#E05252" },
+  english: { label: "ENGLISH", chapters: 12, color: "#8B5CF6" },
+  "Social Studies": { label: "SOCIAL STUDIES", chapters: 20, color: "#E05252" },
+  English: { label: "ENGLISH", chapters: 12, color: "#8B5CF6" },
 }
 
 const DISPLAY_TO_ID: Record<string, AppSubject> = {
@@ -100,7 +100,7 @@ export function isApiSubject(subject: string): subject is AppSubject {
 }
 
 export function isPlaceholderSubject(subject: string): boolean {
-  return false  // All subjects are now fully supported
+  return false
 }
 
 export function getEnrolledSubjects(): string[] {
